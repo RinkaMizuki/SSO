@@ -1,0 +1,19 @@
+version: "3.7"
+services:
+  mysql:
+    image: mysql:5.7
+    container_name: mysql-5.7
+    restart: always                       # always restart
+    environment:
+      MYSQL_DATABASE: 'SSO'              # name of database
+      MYSQL_USER: 'rinka'                # sample is the name of user
+      MYSQL_PASSWORD: 'Password123'          # password for sample user
+      MYSQL_ROOT_PASSWORD: 'Password123'     # password for root user
+    ports:
+      - '3306:3306'                       # host port 3306 is mapper to docker port 3306
+    expose:
+      - '3306'
+    volumes:
+      - mysql-db:/var/lib/mysql
+volumes:
+        mysql-db:
