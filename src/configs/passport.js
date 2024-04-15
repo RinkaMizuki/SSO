@@ -12,10 +12,10 @@ export const configPassport = () => {
       }
       const result = await loginUser(loginData);
       if (result && result.statusCode === 200) {
-        return done(null, result.user)
+        return done(null, result)
       }
       else {
-        return done(null, false, req.flash('data', [result.message, result.statusCode, username]))
+        return done(null, false, result)
       }
     }));
 }

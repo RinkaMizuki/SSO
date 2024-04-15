@@ -1,15 +1,16 @@
 import express from "express";
 import routesV1 from "./v1";
-import { authMiddleware } from "../middlewares/authMiddleware";
+// import { authMiddleware } from "../middlewares/authMiddleware";
 
 const routes = express.Router();
 
-routes.use('/v1', authMiddleware, routesV1);
-routes.use('/', authMiddleware, (req, res) => {
-  res.render('home')
-})
+routes.use('/api/v1', routesV1);
+
 routes.use((req, res) => {
-  return res.send('404 not found')
+  return res.status(404).json({
+    message: "404 Not Found",
+    statusCode: 404
+  });
 })
 
 export default routes;

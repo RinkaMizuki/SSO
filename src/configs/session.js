@@ -37,13 +37,13 @@ const configSession = (app) => {
   app.use(passport.authenticate('session'));
 
   passport.serializeUser(function (user, cb) {
-    console.log("save user:::", user);
     process.nextTick(function () {
       return cb(null, user);
     });
   });
 
   passport.deserializeUser(function (user, cb) {
+
     process.nextTick(function () {
       return cb(null, user);
     });
