@@ -1,18 +1,18 @@
 import passport from "passport";
 import { refreshToken, registerUser } from "../services/authService";
-import { verifyJWT, verifyPermission } from "../services/jwtService";
+import { verifyJWT } from "../services/jwtService";
 
 function setCookie(res, data, cookieATage, cookieRTage) {
   res.cookie("accessToken", data.accessToken,
     {
       maxAge: cookieATage,
-      httpOnly: true
+      httpOnly: true,
     }
   )
   res.cookie("refreshToken", data.refreshToken,
     {
       maxAge: cookieRTage,
-      httpOnly: true
+      httpOnly: true,
     }
   )
   delete data["accessToken"]
@@ -68,20 +68,22 @@ export const authController = {
       })
     });
   },
+  postGoogleLogin: async function (req, res, next) {
+
+  },
+  postFacebookLogin: async function (req, res, next) {
+
+  },
+  postGoogleLink: async function (req, res, next) {
+
+  },
+  deleteUnlinkProvider: async function (req, res, next) {
+
+  },
   postVerifyToken: async function (req, res, next) {
     let accessToken = req.header('authorization')?.split(' ')[1];
     if (!accessToken) accessToken = req.cookies?.accessToken;
     const result = verifyJWT(accessToken);
-    return res.status(result.statusCode).json(result);
-  },
-  postVerifyPermission: async function (req, res, next) {
-    let accessToken = req.header('authorization')?.split(' ')[1];
-    if (!accessToken) accessToken = req.cookies?.accessToken;
-    const data = {
-      accessToken,
-      groupRole: req.body
-    }
-    const result = verifyPermission(data);
     return res.status(result.statusCode).json(result);
   },
   getRefreshToken: async function (req, res, next) {

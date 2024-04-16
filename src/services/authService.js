@@ -4,8 +4,21 @@ require("dotenv").config();
 import { Op } from "sequelize";
 import { createJWT, createRefreshToken } from "./jwtService";
 const uuid = require('uuid');
+import axios from "axios";
 
 const salt = bcrypt.genSaltSync(10);
+
+const getUserInfo = async (userId, userService) => {
+  try {
+    const httpRequest = axios.create({
+      baseURL: userService === "Ecommerce" ? process.env.ECOMMERCE_BASE_URL : "",
+    })
+    const response = await httpRequest.get('api/v1/Admin/users/' + userId);
+    return response.data;
+  } catch (err) {
+    console.log(err);
+  }
+}
 
 const checkEmailExist = async (email) => {
   const user = await db.User.findOne({
@@ -53,10 +66,18 @@ const checkService = async (serviceName, serviceUrl) => {
         { serviceName },
         { serviceUrl }
       ]
-
     }
   })
   return service;
+}
+
+const checkProvider = async (providerKey) => {
+  const provider = await db.Provider.findOne({
+    where: {
+      providerKey,
+    }
+  })
+  return provider;
 }
 
 const registerUser = async (data) => {
@@ -100,6 +121,7 @@ const registerUser = async (data) => {
         serviceId: newService.id
       }
     );
+
     console.log(newUser.toJSON());
     return {
       message: "Registed successfully.",
@@ -171,6 +193,81 @@ const loginUser = async (data) => {
   }
 }
 
+const loginGoogle = async (data) => {
+  try {
+    const userLink = await db.User.findOne({
+      where: {
+        email: data.email
+      }
+    });
+    const userLogins = await db.UserLogin.findOne({
+      where: {
+        providerKey: data.providerId
+      }
+    });
+    if (userLogins != null) {
+      const user = await db.User.findOne({
+        where: {
+          id: userLogins.userId
+        },
+        include: [db.UserLogin, db.Service]
+      })
+      const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName);
+      user.UserLogins.forEach(ul => {
+        userInfoExtend.userLogins.push({
+          loginProvider: ul.loginProvider,
+          providerKey: ul.providerKey,
+          providerDisplayName: ul.providerDisplayName,
+          userId: ul.userId,
+          accountAvatar: ul.accountAvatar,
+          accountName: ul.accountName,
+        })
+      })
+      return {
+        statusCode: 200,
+        message: "Login successfully.",
+        user: userInfoExtend
+      }
+    }
+    if (userLink && !userLogins) {
+      const newProvider = {
+        userId: userLink.id,
+        loginProvider: data.providerName,
+        providerKey: data.providerKey,
+        providerDisplayName: data.providerDisplayName,
+        accountAvatar: data.picture,
+        accountName: data.email,
+      }
+
+      await db.UserLogin.create(newProvider);
+      const user = await db.User.findOne({
+        where: {
+          id: newProvider.userId
+        },
+        include: [db.UserLogin, db.Service]
+      })
+      const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName);
+      user.UserLogins.forEach(ul => {
+        userInfoExtend.userLogins.push({
+          loginProvider: ul.loginProvider,
+          providerKey: ul.providerKey,
+          providerDisplayName: ul.providerDisplayName,
+          userId: ul.userId,
+          accountAvatar: ul.accountAvatar,
+          accountName: ul.accountName,
+        })
+      })
+      return {
+        statusCode: 200,
+        message: "Login successfully.",
+        user: userInfoExtend
+      }
+    }
+  } catch (error) {
+    console.log(error);
+  }
+}
+
 const refreshToken = async (refreshToken) => {
   if (!refreshToken) {
     return {
@@ -229,4 +326,4 @@ const refreshToken = async (refreshToken) => {
   }
 }
 
-export { registerUser, loginUser, refreshToken }
+export { registerUser, loginUser, refreshToken, loginGoogle, getUserInfo }

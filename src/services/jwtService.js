@@ -22,13 +22,6 @@ const verifyJWT = (token) => {
   }
 }
 
-const verifyPermission = (data) => {
-  return {
-    statusCode: 200,
-    message: "Verify permission passed.",
-  }
-}
-
 const createRefreshToken = () => {
   return uuid.v4();
 }
@@ -36,6 +29,5 @@ const createRefreshToken = () => {
 export {
   createJWT,
   verifyJWT,
-  createRefreshToken,
-  verifyPermission
+  createRefreshToken
 }
