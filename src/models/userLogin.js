@@ -20,7 +20,7 @@ module.exports = (sequelize, DataTypes) => {
     providerDisplayName: DataTypes.STRING,
     userId: DataTypes.INTEGER,
     accountAvatar: DataTypes.STRING,
-    accountName: DataTypes.STRING,
+    accountName: DataTypes.TEXT,
     isUnlink: DataTypes.BOOLEAN
   }, {
     sequelize,

@@ -22,11 +22,11 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 //config session
-configSession(app);
+// configSession(app);
 
 app.use(routes)
 
-configPassport();
+// configPassport();
 
 app.listen(PORT, () => {
   console.log(">>> SSO Backend is running on the port = " + PORT);
