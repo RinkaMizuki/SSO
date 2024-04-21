@@ -1,5 +1,5 @@
 import passport from "passport";
-import { loginFacebook, loginUser, postLogout, refreshToken, registerUser } from "../services/authService";
+import { googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser } from "../services/authService";
 import { verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../services/jwtService";
 
 function setCookie(res, data, cookieATage, cookieRTage) {
@@ -58,7 +58,9 @@ export const authController = {
   },
   postLogout: async function (req, res, next) {
     const rfToken = req.cookies?.refreshToken;
-    const result = await postLogout(rfToken);
+    const acToken = req.cookies?.accessToken;
+    const userId = req.body?.userId;
+    const result = await postLogout(rfToken, acToken, userId);
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken');
     return res.status(result.statusCode).json(result);
@@ -83,7 +85,12 @@ export const authController = {
     // });
   },
   postGoogleLogin: async function (req, res, next) {
-
+    const data = req.body;
+    const result = await loginGoogle(data);
+    if (result.statusCode === 200) {
+      setCookie(res, result, 5 * 60 * 1000, 10 * 60 * 1000);
+    }
+    res.status(result.statusCode).json(result);
   },
   postFacebookLogin: async function (req, res, next) {
     const params = {
@@ -99,7 +106,10 @@ export const authController = {
     res.status(data.statusCode).json(data);
   },
   postGoogleLink: async function (req, res, next) {
-
+    const userId = req.query.userId;
+    const data = req.body;
+    const result = await googleLink(userId, data);
+    res.status(result.statusCode).json(result);
   },
   deleteUnlinkProvider: async function (req, res, next) {
 
@@ -119,8 +129,8 @@ export const authController = {
   postVerifyGoogleToken: async function (req, res, next) {
     let ggAccessToken = req.header('authorization')?.split(' ')[1];
     if (!ggAccessToken) ggAccessToken = req.cookies?.accessToken;
-    const result = verifyGoogleJWT(ggAccessToken);
-    return res.status(result.statusCode).json(result);
+    const result = await verifyGoogleJWT(ggAccessToken);
+    return res.status(result?.statusCode).json(result);
   },
   getRefreshToken: async function (req, res, next) {
     const rfToken = req.cookies?.refreshToken;

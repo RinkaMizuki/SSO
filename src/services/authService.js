@@ -150,11 +150,21 @@ const registerUser = async (data) => {
     }
   }
 }
-const postLogout = async (rt) => {
+const postLogout = async (rt, at, userId) => {
   try {
+    if (!rt && !userId && !at) {
+      return {
+        statusCode: 200,
+        message: "Logged out successfully."
+      }
+    }
     await db.UserToken.destroy({
       where: {
-        refreshToken: rt,
+        [Op.or]: [
+          { refreshToken: rt ?? "nohope" },
+          { accessToken: at ?? "nohope" },
+          { userId: userId ?? -1 }
+        ]
       },
       force: true,
     });
@@ -224,8 +234,42 @@ const loginUser = async (data) => {
   }
 }
 
-const loginGoogle = async (data) => {
+const getUserGoogleInfo = async (token_type, access_token) => {
+  const res = await axios.get(process.env.GOOGLE_USERINFO_SCOPE_URI, {
+    headers: {
+      "Authorization": `${token_type} ${access_token}`,
+    },
+  })
+  return res;
+}
+
+const getTokenGoogle = async (code) => {
+  const { data: { access_token, expires_in, id_token, refresh_token, scope, token_type } } = await axios.post(`${process.env.GOOGLE_TOKEN_URI}/token`, null, {
+    params: {
+      client_id: process.env.CLIENT_ID,
+      client_secret: process.env.CLIENT_SECRET,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI
+    }
+  })
+  const res = await getUserGoogleInfo(token_type, access_token);
+
+  const data = {
+    providerId: res.data.id,
+    email: res.data.email,
+    providerName: "Google",
+    providerDisplayName: "Google",
+    picture: res.data.picture,
+    accessToken: id_token,
+    refreshToken: refresh_token
+  }
+  return data;
+}
+
+const loginGoogle = async (params) => {
   try {
+    const data = await getTokenGoogle(params.code);
     const userLink = await db.User.findOne({
       where: {
         email: data.email
@@ -243,7 +287,16 @@ const loginGoogle = async (data) => {
         },
         include: [db.UserLogin]
       })
-      const userInfoExtend = await getUserInfo(user.id, data.serviceName);
+
+      await db.UserToken.create({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+        userId: user.id
+      })
+
+      const userInfoExtend = await getUserInfo(user.id, params.serviceName);
+
       user.UserLogins.forEach(ul => {
         userInfoExtend.userLogins.push({
           loginProvider: ul.loginProvider,
@@ -252,12 +305,15 @@ const loginGoogle = async (data) => {
           userId: ul.userId,
           accountAvatar: ul.accountAvatar,
           accountName: ul.accountName,
+          isUnlink: ul.isUnlink,
         })
       })
       return {
         statusCode: 200,
         message: "Login successfully.",
-        user: userInfoExtend
+        user: userInfoExtend,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken
       }
     }
     if (userLink && !userLogins) {
@@ -268,7 +324,7 @@ const loginGoogle = async (data) => {
         providerDisplayName: data.providerDisplayName,
         accountAvatar: data.picture,
         accountName: data.email,
-        isUnlink: false,
+        isUnlink: !!userLink.password || !!userLink.UserLogins.length,
       }
       await db.UserLogin.create(newProvider);
       const user = await db.User.findOne({
@@ -277,7 +333,14 @@ const loginGoogle = async (data) => {
         },
         include: [db.UserLogin]
       })
-      const userInfoExtend = await getUserInfo(user.id, data.serviceName);
+      await db.UserToken.create({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+        userId: user.id
+      })
+
+      const userInfoExtend = await getUserInfo(user.id, params.serviceName);
       user.UserLogins.forEach(ul => {
         userInfoExtend.userLogins.push({
           loginProvider: ul.loginProvider,
@@ -286,12 +349,15 @@ const loginGoogle = async (data) => {
           userId: ul.userId,
           accountAvatar: ul.accountAvatar,
           accountName: ul.accountName,
+          isUnlink: ul.isUnlink,
         })
       })
       return {
         statusCode: 200,
         message: "Login successfully.",
-        user: userInfoExtend
+        user: userInfoExtend,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
       }
     } else {
       const newUserWithProvider = {
@@ -304,8 +370,7 @@ const loginGoogle = async (data) => {
         Url: data.picture,
         Avatar: "Provider Avatar"
       }
-      const response = await postUserInfo(newUserWithProvider, data.serviceName)
-
+      const response = await postUserInfo(newUserWithProvider, params.serviceName)
       const newProvider = {
         userId: response.id,
         loginProvider: data.providerName,
@@ -317,7 +382,7 @@ const loginGoogle = async (data) => {
       }
       const service = await db.Service.findOne({
         where: {
-          serviceName: data.serviceName,
+          serviceName: params.serviceName,
         }
       })
       await db.User.create({
@@ -332,6 +397,14 @@ const loginGoogle = async (data) => {
           userId: response.id
         }
       })
+
+      await db.UserToken.create({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+        userId: response.id
+      })
+
       providers.forEach(ul => {
         response.userLogins.push({
           loginProvider: ul.loginProvider,
@@ -340,12 +413,15 @@ const loginGoogle = async (data) => {
           userId: ul.userId,
           accountAvatar: ul.accountAvatar,
           accountName: ul.accountName,
+          isUnlink: ul.isUnlink,
         })
       })
       return {
         statusCode: 200,
         message: "Login successfully.",
-        user: response
+        user: response,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken
       }
     }
   } catch (error) {
@@ -386,6 +462,7 @@ const loginFacebook = async (data) => {
             userId: ul.userId,
             accountAvatar: ul.accountAvatar,
             accountName: ul.accountName,
+            isUnlink: ul.isUnlink,
           })
         })
         await db.UserToken.create({
@@ -435,7 +512,7 @@ const loginFacebook = async (data) => {
           providerKey: userProfile.id,
           providerDisplayName: "Facebook",
           accountAvatar: userProfile.picture.data.url,
-          accountName: userProfile.email,
+          accountName: userProfile.name,
           isUnlink: false,
         }
         const service = await db.Service.findOne({
@@ -465,6 +542,7 @@ const loginFacebook = async (data) => {
             userId: ul.userId,
             accountAvatar: ul.accountAvatar,
             accountName: ul.accountName,
+            isUnlink: ul.isUnlink,
           })
         })
 
@@ -485,7 +563,7 @@ const loginFacebook = async (data) => {
       else {
         const userLink = await db.User.findOne({
           where: {
-            id: data?.id
+            id: +data?.userId
           },
           include: [db.UserLogin]
         })
@@ -496,11 +574,11 @@ const loginFacebook = async (data) => {
           providerDisplayName: "Facebook",
           accountAvatar: userProfile.picture.data.url,
           accountName: userProfile.name,
-          isUnlink: false,
+          isUnlink: !!userLink.password || !!userLink.UserLogins.length,
         }
         await db.UserLogin.create(newProvider);
 
-        const userInfoExtend = await getUserInfo(user.id, data.serviceName);
+        const userInfoExtend = await getUserInfo(userLink.id, data.serviceName);
         userLink.UserLogins.forEach(ul => {
           userInfoExtend.userLogins.push({
             loginProvider: ul.loginProvider,
@@ -509,6 +587,7 @@ const loginFacebook = async (data) => {
             userId: ul.userId,
             accountAvatar: ul.accountAvatar,
             accountName: ul.accountName,
+            isUnlink: ul.isUnlink,
           })
         })
 
@@ -521,6 +600,65 @@ const loginFacebook = async (data) => {
       }
     }
   } catch (err) {
+    return {
+      statusCode: 500,
+      message: err.message
+    }
+  }
+}
+
+const googleLink = async (userId, params) => {
+  try {
+    const provider = await getTokenGoogle(params.code);
+    const providerExternalLink = await db.UserLogin.findOne({
+      where: {
+        providerKey: provider.providerId
+      }
+    })
+    if (!providerExternalLink) {
+      const userLink = await db.User.findOne({
+        where: {
+          id: userId
+        },
+        include: db.UserLogin
+      })
+      const newProvider = {
+        userId: userLink.id,
+        loginProvider: provider.providerName,
+        providerKey: provider.providerId,
+        providerDisplayName: provider.providerDisplayName,
+        accountAvatar: provider.picture,
+        accountName: provider.email,
+        isUnlink: !!userLink.password || !!userLink.UserLogins.length,
+      }
+      await db.UserLogin.create(newProvider);
+
+      const userInfoExtend = await getUserInfo(userLink.id, params.serviceName);
+      userLink.UserLogins.forEach(ul => {
+        userInfoExtend.userLogins.push({
+          loginProvider: ul.loginProvider,
+          providerKey: ul.providerKey,
+          providerDisplayName: ul.providerDisplayName,
+          userId: ul.userId,
+          accountAvatar: ul.accountAvatar,
+          accountName: ul.accountName,
+          isUnlink: ul.isUnlink,
+        })
+      })
+      userInfoExtend.userLogins.push(newProvider);
+      return {
+        message: "Link account successfully.",
+        statusCode: 200,
+        user: userInfoExtend
+      }
+    } else {
+      return {
+        statusCode: 409,
+        message: "Google account is invalid or already in use."
+      }
+    }
+  } catch (err) {
+    console.log(err);
     return {
       statusCode: 500,
       message: err.message
@@ -563,13 +701,28 @@ const refreshToken = async (refreshToken, type) => {
     include: db.Service
   })
   let newAccessToken;
+  let newRefreshToken;
   const payload = getListClaim(user);
   if (type === 'facebook') {
     newAccessToken = createFacebookJWT(payload);
+    newRefreshToken = createRefreshToken();
   } else if (type === 'default') {
     newAccessToken = createJWT(payload);
+    newRefreshToken = createRefreshToken();
   }
-  const newRefreshToken = createRefreshToken();
+  else {
+    const { data: { id_token, access_token } } = await axios.post(`${process.env.GOOGLE_TOKEN_URI}/token`, null, {
+      params: {
+        client_id: process.env.CLIENT_ID,
+        client_secret: process.env.CLIENT_SECRET,
+        grant_type: "refresh_token",
+        refresh_token: currRfToken.refreshToken,
+        scope: "openid profile email",
+      }
+    });
+    newAccessToken = id_token;
+    newRefreshToken = currRfToken.refreshToken;
+  }
   await db.UserToken.update(
     {
       accessToken: newAccessToken,
@@ -591,4 +744,4 @@ const refreshToken = async (refreshToken, type) => {
   }
 }
 
-export { postLogout, registerUser, loginUser, refreshToken, loginGoogle, loginFacebook, getUserInfo }
+export { postLogout, registerUser, loginUser, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo }

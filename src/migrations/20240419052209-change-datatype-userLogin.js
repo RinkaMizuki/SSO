@@ -11,8 +11,9 @@ module.exports = {
      * Example:
      * await queryInterface.createTable('users', { id: Sequelize.INTEGER });
      */
+
     await queryInterface.changeColumn('UserLogins', 'accountName', {
-      type: DataTypes.TEXT,
+      type: DataTypes.STRING,
     });
   },
 
