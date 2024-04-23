@@ -1,10 +1,12 @@
-import db from "../models/index";
+import db, { sequelize } from "../models/index";
 import bcrypt from "bcryptjs";
 require("dotenv").config();
 import { Op } from "sequelize";
 import { createFacebookJWT, createJWT, createRefreshToken } from "./jwtService";
 const uuid = require('uuid');
+const jwt = require('jsonwebtoken');
 import axios from "axios";
+import { createMailToken, sendMailAsync } from "./mailService";
 
 const salt = bcrypt.genSaltSync(10);
 
@@ -95,7 +97,22 @@ const checkService = async (serviceName, serviceUrl) => {
   return service;
 }
 
+const validateEmailConfirmToken = (token) => {
+  const secret = process.env.SECRET;
+  try {
+    jwt.verify(token, secret, {
+      issuer: process.env.ISSUER,
+      audience: process.env.AUDIENCE,
+    });
+    return true;
+  } catch (error) {
+    console.log(error);
+    return false;
+  }
+}
+
 const registerUser = async (data) => {
+  const t = await sequelize.transaction();
   try {
     const isExistedEmail = await checkEmailExist(data.email);
     if (isExistedEmail) {
@@ -121,28 +138,42 @@ const registerUser = async (data) => {
           serviceName: data.serviceName,
           serviceUrl: data.serviceUrl,
           isActive: true,
-        }
+        }, { transaction: t }
       )
     }
     else {
       newService = service;
     }
-    const newUser = await db.User.create(
-      {
-        email: data.email,
-        username: data.username,
-        password: passwordHash,
-        role: "member",
-        serviceId: newService.id
-      }
-    );
-
-    console.log(newUser.toJSON());
+    const newUser = {
+      email: data.email,
+      username: data.username,
+      password: passwordHash,
+      role: "member",
+      serviceId: newService.id
+    };
+    await db.User.create(newUser, {
+      transaction: t
+    });
+    await postUserInfo({
+      UserName: data.email,
+      Email: data.email,
+      BirthDate: new Date(),
+      CreatedAt: new Date(),
+      ModifiedAt: new Date(),
+      EmailConfirm: false,
+      Url: "",
+      Avatar: ""
+    }, data.serviceName)
+    const token = createMailToken(newUser, "1h");
+    const message = `${data.serviceUrl}confirm-email?email=${newUser.email}&token=${token}`;
+    await sendMailAsync(newUser.email, "Please confirm your email.", `Click here to confirm your email. <a href=\"${message}\">Click here!</a>`)
+    await t.commit();
     return {
       message: "Registed successfully.",
       statusCode: 201
     }
   } catch (error) {
+    await t.rollback();
     console.log(error);
     return {
       message: "Error creating",
@@ -184,9 +215,14 @@ const loginUser = async (data) => {
   try {
     const user = await db.User.findOne({
       where: {
-        [Op.or]: [
-          { email: data.valueLogin },
-          { username: data.valueLogin }
+        [Op.and]: [
+          {
+            [Op.or]: [
+              { email: data.valueLogin },
+              { username: data.valueLogin }
+            ]
+          },
+          { emailConfirm: true }
         ]
       },
       include: db.Service
@@ -221,7 +257,7 @@ const loginUser = async (data) => {
       }
     } else {
       return {
-        message: 'Email/Username incorrect.',
+        message: 'Email/Username incorrect or unconfimred.',
         statusCode: 404
       }
     }
@@ -230,6 +266,57 @@ const loginUser = async (data) => {
     return {
       message: error.message,
       statusCode: error.statusCode,
+    }
+  }
+}
+
+const confirmEmail = async (data) => {
+  const t = await sequelize.transaction();
+  try {
+    const userConfirm = await db.User.findOne({
+      where: {
+        email: data.email,
+      },
+    }, { transaction: t })
+    if (!userConfirm) {
+      return {
+        statusCode: 404,
+        message: "User not found."
+      }
+    }
+    const isValid = validateEmailConfirmToken(data.token);
+    if (!isValid) {
+      return {
+        message: "Confirm email failure.",
+        statusCode: 400,
+      }
+    }
+    if (userConfirm.emailConfirm) {
+      return {
+        message: "Your email have been confirmed.",
+        statusCode: 409,
+      }
+    }
+    await db.User.update(
+      { emailConfirm: true },
+      {
+        where: { email: data.email },
+        transaction: t
+      },
+    );
+    await t.commit();
+
+    return {
+      statusCode: 200,
+      message: "Confirm email successfully."
+    }
+
+  } catch (err) {
+    await t.rollback();
+    console.log(err);
+    return {
+      statusCode: 500,
+      message: err.message
     }
   }
 }
@@ -324,7 +411,7 @@ const loginGoogle = async (params) => {
         providerDisplayName: data.providerDisplayName,
         accountAvatar: data.picture,
         accountName: data.email,
-        isUnlink: !!userLink.password || !!userLink.UserLogins.length,
+        isUnlink: !!userLink?.password || !!userLink.UserLogins?.length,
       }
       await db.UserLogin.create(newProvider);
       const user = await db.User.findOne({
@@ -423,6 +510,55 @@ const loginGoogle = async (params) => {
         accessToken: data.accessToken,
         refreshToken: data.refreshToken
       }
+    }
+  } catch (error) {
+    console.log(error);
+    return {
+      statusCode: 500,
+      message: error.message
+    }
+  }
+}
+
+const unlinkGoogle = async (data) => {
+  try {
+    const rcChange = await db.UserLogin.destroy({
+      where: {
+        [Op.and]: [
+          { userId: data.userId },
+          { providerKey: data.providerId }
+        ]
+      },
+      force: true,
+    });
+    if (!rcChange) {
+      return {
+        statusCode: 404,
+        message: "UserID/ProviderID incorrect."
+      }
+    }
+    const userLinked = await db.User.findOne({
+      where: {
+        id: data.userId,
+      },
+      include: [db.UserLogin, db.Service]
+    })
+    const userInfoExtend = await getUserInfo(userLinked.id, userLinked.Service.serviceName);
+    userLinked.UserLogins.forEach(ul => {
+      userInfoExtend.userLogins.push({
+        loginProvider: ul.loginProvider,
+        providerKey: ul.providerKey,
+        providerDisplayName: ul.providerDisplayName,
+        userId: ul.userId,
+        accountAvatar: ul.accountAvatar,
+        accountName: ul.accountName,
+        isUnlink: ul.isUnlink,
+      })
+    })
+    return {
+      statusCode: 200,
+      message: "Unlinked provider successfully.",
+      user: userInfoExtend,
     }
   } catch (error) {
     console.log(error);
@@ -574,7 +710,7 @@ const loginFacebook = async (data) => {
           providerDisplayName: "Facebook",
           accountAvatar: userProfile.picture.data.url,
           accountName: userProfile.name,
-          isUnlink: !!userLink.password || !!userLink.UserLogins.length,
+          isUnlink: !!userLink?.password || !!userLink.UserLogins?.length,
         }
         await db.UserLogin.create(newProvider);
 
@@ -629,7 +765,7 @@ const googleLink = async (userId, params) => {
         providerDisplayName: provider.providerDisplayName,
         accountAvatar: provider.picture,
         accountName: provider.email,
-        isUnlink: !!userLink.password || !!userLink.UserLogins.length,
+        isUnlink: !!userLink?.password || !!userLink.UserLogins?.length,
       }
       await db.UserLogin.create(newProvider);
 
@@ -744,4 +880,4 @@ const refreshToken = async (refreshToken, type) => {
   }
 }
 
-export { postLogout, registerUser, loginUser, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo }
+export { postLogout, registerUser, loginUser, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo, unlinkGoogle, confirmEmail }

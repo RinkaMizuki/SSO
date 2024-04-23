@@ -25,6 +25,7 @@ module.exports = (sequelize, DataTypes) => {
     password: DataTypes.STRING,
     role: DataTypes.STRING,
     serviceId: DataTypes.UUID,
+    emailConfirm: DataTypes.BOOLEAN
   }, {
     sequelize,
     modelName: 'User',

@@ -1,5 +1,5 @@
 import passport from "passport";
-import { googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser } from "../services/authService";
+import { confirmEmail, googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser, unlinkGoogle } from "../services/authService";
 import { verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../services/jwtService";
 
 function setCookie(res, data, cookieATage, cookieRTage) {
@@ -45,7 +45,7 @@ export const authController = {
     res.status(result.statusCode).json(result);
   },
   postRegister: async function (req, res, next) {
-    const origin = req.headers.origin; // hostname = 'localhost:8080'
+    const origin = req.headers.origin; // hostname = 'localhost:5000'
     const data = {
       email: req.body.email,
       username: req.body.username,
@@ -55,6 +55,14 @@ export const authController = {
     }
     const result = await registerUser(data);
     return res.status(result.statusCode).json(result);
+  },
+  getConfirmEmail: async function (req, res, next) {
+    const data = {
+      email: req.query?.email,
+      token: req.query?.token,
+    }
+    const result = await confirmEmail(data);
+    res.status(result.statusCode).json(result);
   },
   postLogout: async function (req, res, next) {
     const rfToken = req.cookies?.refreshToken;
@@ -111,8 +119,16 @@ export const authController = {
     const result = await googleLink(userId, data);
     res.status(result.statusCode).json(result);
   },
-  deleteUnlinkProvider: async function (req, res, next) {
+  postPhoneLink: async function (req, res, next) {
 
+  },
+  deleteUnlinkProvider: async function (req, res, next) {
+    const data = {
+      userId: req.query?.userId,
+      providerId: req.query?.providerId
+    }
+    const result = await unlinkGoogle(data);
+    res.status(result.statusCode).json(result);
   },
   postVerifyToken: async function (req, res, next) {
     let accessToken = req.header('authorization')?.split(' ')[1];

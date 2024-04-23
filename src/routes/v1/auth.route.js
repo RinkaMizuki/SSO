@@ -25,4 +25,8 @@ authRoutes.post('/google-link', authController.postGoogleLink)
 
 authRoutes.delete('/unlink-provider', authController.deleteUnlinkProvider)
 
+authRoutes.get('/confirm-email', authController.getConfirmEmail)
+
+authRoutes.post('phone-link', authController.postPhoneLink)
+
 export default authRoutes;
