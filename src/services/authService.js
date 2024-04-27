@@ -2,7 +2,7 @@ import db, { sequelize } from "../models/index";
 import bcrypt from "bcryptjs";
 require("dotenv").config();
 import { Op } from "sequelize";
-import { createFacebookJWT, createJWT, createRefreshToken } from "./jwtService";
+import { createFacebookJWT, createJWT, createRefreshToken, verifyJWT } from "./jwtService";
 const uuid = require('uuid');
 const jwt = require('jsonwebtoken');
 import axios from "axios";
@@ -155,7 +155,7 @@ const registerUser = async (data) => {
       transaction: t
     });
     await postUserInfo({
-      UserName: data.email,
+      UserName: data.username,
       Email: data.email,
       BirthDate: new Date(),
       CreatedAt: new Date(),
@@ -225,12 +225,24 @@ const loginUser = async (data) => {
           { emailConfirm: true }
         ]
       },
-      include: db.Service
+      include: [db.Service, db.UserLogin]
     });
     if (user) {
       const isCorrectPassword = checkUserPassword(data.password, user.password);
       if (isCorrectPassword) {
-        const userInfo = await getUserInfo(user.id, user.Service.serviceName);
+
+        const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName);
+        user.UserLogins.forEach(ul => {
+          userInfoExtend.userLogins.push({
+            loginProvider: ul.loginProvider,
+            providerKey: ul.providerKey,
+            providerDisplayName: ul.providerDisplayName,
+            userId: ul.userId,
+            accountAvatar: ul.accountAvatar,
+            accountName: ul.accountName,
+            isUnlink: ul.isUnlink,
+          })
+        })
         const payload = getListClaim(user);
         const token = createJWT(payload);
         const refreshToken = createRefreshToken();
@@ -242,7 +254,7 @@ const loginUser = async (data) => {
           userId: user.id
         })
         return {
-          user: userInfo,
+          user: userInfoExtend,
           accessToken: token,
           refreshToken,
           message: "Login successfully.",
@@ -266,6 +278,70 @@ const loginUser = async (data) => {
     return {
       message: error.message,
       statusCode: error.statusCode,
+    }
+  }
+}
+
+const forgotPassword = async (data) => {
+  try {
+    const user = await db.User.findOne({
+      where: {
+        email: data.email,
+      },
+      include: [db.Service]
+    })
+    const payload = getListClaim(user);
+    const token = createMailToken(payload, 5 * 60);
+    const message = `${data.returnUrl}?token=${token}`;
+    await sendMailAsync(user.email, "Reset your password", `Click here to reset your password. <a href="${message}">Click here!</a>`);
+
+    return {
+      statusCode: 200,
+      message: "Please check your email to reset password"
+    }
+
+  } catch (error) {
+    return {
+      statusCode: 500,
+      message: error.message
+    }
+  }
+}
+
+const resetPassword = async (data) => {
+  try {
+    if (!data.token) {
+      return {
+        statusCode: "401",
+        message: "Invalid token."
+      }
+    }
+    const result = verifyJWT(data.token)
+    if (result.statusCode === 200) {
+      const claims = jwt.decode(data.token)
+      console.log("claims: ", claims);
+      const newPassword = bcrypt.hashSync(data.password, salt);
+      await db.User.update(
+        { password: newPassword },
+        {
+          where: {
+            email: claims.email
+          }
+        }
+      )
+      return {
+        message: "Reset password successfully.",
+        statusCode: 200,
+      }
+    }
+    return {
+      statusCode: result.statusCode,
+      message: "Reset password failed.",
+    };
+  } catch (error) {
+    return {
+      message: error.message,
+      statusCode: 500
     }
   }
 }
@@ -880,4 +956,4 @@ const refreshToken = async (refreshToken, type) => {
   }
 }
 
-export { postLogout, registerUser, loginUser, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo, unlinkGoogle, confirmEmail }
+export { postLogout, registerUser, loginUser, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo, unlinkGoogle, confirmEmail, forgotPassword, resetPassword }

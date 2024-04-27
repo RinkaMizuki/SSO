@@ -9,6 +9,10 @@ authRoutes.post('/register', authController.postRegister)
 
 authRoutes.post('/logout', authController.postLogout)
 
+authRoutes.post('/forgot-password', authController.postForgotPassword)
+
+authRoutes.post('/reset-password', authController.postResetPassword)
+
 authRoutes.get('/refresh-token', authController.getRefreshToken)
 
 authRoutes.post('/verify-token', authController.postVerifyToken)
@@ -26,7 +30,5 @@ authRoutes.post('/google-link', authController.postGoogleLink)
 authRoutes.delete('/unlink-provider', authController.deleteUnlinkProvider)
 
 authRoutes.get('/confirm-email', authController.getConfirmEmail)
-
-authRoutes.post('phone-link', authController.postPhoneLink)
 
 export default authRoutes;

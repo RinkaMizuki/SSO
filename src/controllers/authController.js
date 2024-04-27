@@ -1,5 +1,4 @@
-import passport from "passport";
-import { confirmEmail, googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser, unlinkGoogle } from "../services/authService";
+import { confirmEmail, forgotPassword, googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle } from "../services/authService";
 import { verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../services/jwtService";
 
 function setCookie(res, data, cookieATage, cookieRTage) {
@@ -40,7 +39,7 @@ export const authController = {
     }
     const result = await loginUser(loginData);
     if (result.statusCode === 200) {
-      setCookie(res, result, 2 * 60 * 1000, 10 * 60 * 1000);
+      setCookie(res, result, 1 * 60 * 1000, 2 * 60 * 60 * 1000);
     }
     res.status(result.statusCode).json(result);
   },
@@ -55,6 +54,28 @@ export const authController = {
     }
     const result = await registerUser(data);
     return res.status(result.statusCode).json(result);
+  },
+  postForgotPassword: async function (req, res, next) {
+    const data = {
+      email: req.body?.email,
+      returnUrl: req.body?.returnUrl
+    }
+    if (!data.email || !data.returnUrl) {
+      return res.status(400).json({
+        statusCode: 400,
+        message: "Invalid returnUrl or email."
+      });
+    }
+    const result = await forgotPassword(data);
+    res.status(result.statusCode).json(result);
+  },
+  postResetPassword: async function (req, res, next) {
+    const data = {
+      password: req.body?.password,
+      token: req.body?.token
+    }
+    const result = await resetPassword(data);
+    res.status(result.statusCode).json(result);
   },
   getConfirmEmail: async function (req, res, next) {
     const data = {
@@ -119,9 +140,7 @@ export const authController = {
     const result = await googleLink(userId, data);
     res.status(result.statusCode).json(result);
   },
-  postPhoneLink: async function (req, res, next) {
 
-  },
   deleteUnlinkProvider: async function (req, res, next) {
     const data = {
       userId: req.query?.userId,
@@ -134,19 +153,19 @@ export const authController = {
     let accessToken = req.header('authorization')?.split(' ')[1];
     if (!accessToken) accessToken = req.cookies?.accessToken;
     const result = verifyJWT(accessToken);
-    return res.status(result.statusCode).json(result);
+    res.status(result.statusCode).json(result);
   },
   postVerifyFacebookToken: async function (req, res, next) {
     let fbAccessToken = req.header('authorization')?.split(' ')[1];
     if (!fbAccessToken) fbAccessToken = req.cookies?.accessToken;
     const result = verifyFacebookJWT(fbAccessToken);
-    return res.status(result.statusCode).json(result);
+    res.status(result.statusCode).json(result);
   },
   postVerifyGoogleToken: async function (req, res, next) {
     let ggAccessToken = req.header('authorization')?.split(' ')[1];
     if (!ggAccessToken) ggAccessToken = req.cookies?.accessToken;
     const result = await verifyGoogleJWT(ggAccessToken);
-    return res.status(result?.statusCode).json(result);
+    res.status(result?.statusCode).json(result);
   },
   getRefreshToken: async function (req, res, next) {
     const rfToken = req.cookies?.refreshToken;
@@ -154,6 +173,6 @@ export const authController = {
     if (result.statusCode === 200) {
       setCookie(res, result, 60000, 10 * 60 * 1000);
     }
-    return res.status(result.statusCode).json(result);
+    res.status(result.statusCode).json(result);
   }
 }
