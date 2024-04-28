@@ -19,7 +19,8 @@ module.exports = (sequelize, DataTypes) => {
   UserToken.init({
     accessToken: DataTypes.STRING,
     refreshToken: DataTypes.STRING,
-    expires: DataTypes.DATE
+    expires: DataTypes.DATE,
+    userId: DataTypes.UUID
   }, {
     sequelize,
     modelName: 'UserToken',

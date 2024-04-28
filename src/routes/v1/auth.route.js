@@ -31,4 +31,8 @@ authRoutes.delete('/unlink-provider', authController.deleteUnlinkProvider)
 
 authRoutes.get('/confirm-email', authController.getConfirmEmail)
 
+authRoutes.get('/enable-f2a', authController.getEnableF2A)
+
+authRoutes.post('/verify-otp', authController.postVerifyOtp)
+
 export default authRoutes;

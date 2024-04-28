@@ -2,11 +2,14 @@ import db, { sequelize } from "../models/index";
 import bcrypt from "bcryptjs";
 require("dotenv").config();
 import { Op } from "sequelize";
-import { createFacebookJWT, createJWT, createRefreshToken, verifyJWT } from "./jwtService";
+import { createFacebookJWT, createJWT, createRefreshToken } from "./jwtService";
 const uuid = require('uuid');
 const jwt = require('jsonwebtoken');
+const randomstring = require("randomstring");
 import axios from "axios";
-import { createMailToken, sendMailAsync } from "./mailService";
+import { createEmailConfirmToken, createResetPasswordToken, sendMailAsync } from "./mailService";
+const nodeCache = require("node-cache");
+const otpCache = new nodeCache();
 
 const salt = bcrypt.genSaltSync(10);
 
@@ -99,16 +102,41 @@ const checkService = async (serviceName, serviceUrl) => {
 
 const validateEmailConfirmToken = (token) => {
   const secret = process.env.SECRET;
-  try {
-    jwt.verify(token, secret, {
-      issuer: process.env.ISSUER,
-      audience: process.env.AUDIENCE,
-    });
-    return true;
-  } catch (error) {
-    console.log(error);
-    return false;
-  }
+  return jwt.verify(token, secret, {
+    issuer: process.env.ISSUER,
+    audience: process.env.AUDIENCE,
+  }, function (err, decoded) {
+    if (err) {
+      console.log(err);
+      return false;
+    }
+    else {
+      if (decoded.type != "confirm") {
+        console.log("decoded.type: ", decoded.type);
+        return false;
+      }
+      return true;
+    }
+  });
+}
+
+const validateResetPasswordToken = (token) => {
+  const secret = process.env.SECRET;
+  return jwt.verify(token, secret, {
+    issuer: process.env.ISSUER,
+    audience: process.env.AUDIENCE,
+  }, function (err, decoded) {
+    if (err) {
+      console.log(err);
+      return false;
+    }
+    else {
+      if (decoded.type != "reset") {
+        return false;
+      }
+      return true;
+    }
+  });
 }
 
 const registerUser = async (data) => {
@@ -145,6 +173,7 @@ const registerUser = async (data) => {
       newService = service;
     }
     const newUser = {
+      id: uuid.v4(),
       email: data.email,
       username: data.username,
       password: passwordHash,
@@ -155,6 +184,7 @@ const registerUser = async (data) => {
       transaction: t
     });
     await postUserInfo({
+      UserId: newUser.id,
       UserName: data.username,
       Email: data.email,
       BirthDate: new Date(),
@@ -164,7 +194,7 @@ const registerUser = async (data) => {
       Url: "",
       Avatar: ""
     }, data.serviceName)
-    const token = createMailToken(newUser, "1h");
+    const token = createEmailConfirmToken(newUser, "1h");
     const message = `${data.serviceUrl}confirm-email?email=${newUser.email}&token=${token}`;
     await sendMailAsync(newUser.email, "Please confirm your email.", `Click here to confirm your email. <a href=\"${message}\">Click here!</a>`)
     await t.commit();
@@ -212,6 +242,7 @@ const postLogout = async (rt, at, userId) => {
   }
 }
 const loginUser = async (data) => {
+  const t = await sequelize.transaction();
   try {
     const user = await db.User.findOne({
       where: {
@@ -223,14 +254,13 @@ const loginUser = async (data) => {
             ]
           },
           { emailConfirm: true }
-        ]
+        ],
       },
       include: [db.Service, db.UserLogin]
     });
     if (user) {
       const isCorrectPassword = checkUserPassword(data.password, user.password);
       if (isCorrectPassword) {
-
         const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName);
         user.UserLogins.forEach(ul => {
           userInfoExtend.userLogins.push({
@@ -243,6 +273,7 @@ const loginUser = async (data) => {
             isUnlink: ul.isUnlink,
           })
         })
+        userInfoExtend.f2a = user.f2a;
         const payload = getListClaim(user);
         const token = createJWT(payload);
         const refreshToken = createRefreshToken();
@@ -252,7 +283,8 @@ const loginUser = async (data) => {
           refreshToken,
           expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
           userId: user.id
-        })
+        }, { transaction: t })
+        await t.commit();
         return {
           user: userInfoExtend,
           accessToken: token,
@@ -262,12 +294,14 @@ const loginUser = async (data) => {
         }
       }
       else {
+        await t.commit();
         return {
           message: 'Password incorrect.',
           statusCode: 400
         }
       }
     } else {
+      await t.commit();
       return {
         message: 'Email/Username incorrect or unconfimred.',
         statusCode: 404
@@ -275,6 +309,7 @@ const loginUser = async (data) => {
     }
   } catch (error) {
     console.log(error);
+    await t.rollback();
     return {
       message: error.message,
       statusCode: error.statusCode,
@@ -291,7 +326,7 @@ const forgotPassword = async (data) => {
       include: [db.Service]
     })
     const payload = getListClaim(user);
-    const token = createMailToken(payload, 5 * 60);
+    const token = createResetPasswordToken(payload, 5 * 60);
     const message = `${data.returnUrl}?token=${token}`;
     await sendMailAsync(user.email, "Reset your password", `Click here to reset your password. <a href="${message}">Click here!</a>`);
 
@@ -316,10 +351,9 @@ const resetPassword = async (data) => {
         message: "Invalid token."
       }
     }
-    const result = verifyJWT(data.token)
-    if (result.statusCode === 200) {
+    const result = validateResetPasswordToken(data.token)
+    if (result) {
       const claims = jwt.decode(data.token)
-      console.log("claims: ", claims);
       const newPassword = bcrypt.hashSync(data.password, salt);
       await db.User.update(
         { password: newPassword },
@@ -335,7 +369,7 @@ const resetPassword = async (data) => {
       }
     }
     return {
-      statusCode: result.statusCode,
+      statusCode: 400,
       message: "Reset password failed.",
     };
   } catch (error) {
@@ -347,13 +381,12 @@ const resetPassword = async (data) => {
 }
 
 const confirmEmail = async (data) => {
-  const t = await sequelize.transaction();
   try {
     const userConfirm = await db.User.findOne({
       where: {
         email: data.email,
       },
-    }, { transaction: t })
+    })
     if (!userConfirm) {
       return {
         statusCode: 404,
@@ -361,6 +394,7 @@ const confirmEmail = async (data) => {
       }
     }
     const isValid = validateEmailConfirmToken(data.token);
+    console.log(isValid);
     if (!isValid) {
       return {
         message: "Confirm email failure.",
@@ -377,10 +411,8 @@ const confirmEmail = async (data) => {
       { emailConfirm: true },
       {
         where: { email: data.email },
-        transaction: t
       },
     );
-    await t.commit();
 
     return {
       statusCode: 200,
@@ -388,11 +420,143 @@ const confirmEmail = async (data) => {
     }
 
   } catch (err) {
-    await t.rollback();
     console.log(err);
     return {
       statusCode: 500,
       message: err.message
+    }
+  }
+}
+
+const enableF2A = async (params) => {
+
+  const otpCode = randomstring.generate({
+    length: 4,
+    charset: 'numeric'
+  });
+  const data = JSON.stringify({
+    "from": {
+      "type": "external",
+      "number": "842873030626",
+      "alias": "STRINGEE_NUMBER"
+    },
+    "to": [
+      {
+        "type": "external",
+        "number": params?.phone.startsWith('0') ? params?.phone.replace('0', '84') : params?.phone,
+        "alias": "TO_NUMBER"
+      }
+    ],
+    "answer_url": "https://example.com/answerurl",
+    "actions": [
+      {
+        "action": "talk",
+        "text": `Vui lòng không để lộ mã xác thực. Mã xác thực của bạn là ${otpCode}`
+      }
+    ]
+  });
+
+  const config = {
+    method: 'post',
+    maxBodyLength: Infinity,
+    url: 'https://api.stringee.com/v1/call2/callout',
+    headers: {
+      'X-STRINGEE-AUTH': process.env.STRINGEE_TOKEN, // save into cache with expired cache = expired token
+      'Content-Type': 'application/json',
+      'Cookie': 'SRVNAME=SD'
+    },
+    data: data
+  };
+
+  axios.request(config)
+    .then((response) => {
+      console.log(JSON.stringify(response.data));
+      success = otpCache.set(`otp_${params?.phone}`, otpCode.toString(), 5 * 60);
+      if (success) {
+        return {
+          message: response.data?.message,
+          statusCode: 200
+        }
+      }
+      return {
+        message: "Something went wrong.",
+        statusCode: 500
+      }
+    })
+    .catch((error) => {
+      console.log(error);
+      return {
+        message: error.message,
+        statusCode: 400
+      }
+    });
+}
+
+const verifyOtp = async (data) => {
+  const t = await sequelize.transaction();
+  try {
+    if (!data?.phone || !data?.otp) {
+      return {
+        statusCode: 400,
+        message: "Invalid otp/phone."
+      }
+    }
+    const value = otpCache.get(`otp_${data?.phone}`);
+    if (!value) {
+      return {
+        statusCode: 404,
+        message: "Your otp expired. Please try again.",
+      }
+    }
+    if (value.toString() != data?.otp.toString()) {
+      return {
+        statusCode: 400,
+        message: "Invalid otp.",
+      }
+    }
+    const user = await db.User.findOne({
+      where: {
+        id: data?.userId
+      }
+    })
+    if (!user) {
+      return {
+        statusCode: 404,
+        message: "User not found."
+      }
+    }
+    await db.User.update(
+      { f2a: data?.isF2A },
+      {
+        where: {
+          id: data?.userId
+        },
+        transaction: t
+      })
+    const userInfoExtend = await getUserInfo(data?.userId, user?.Service.serviceName);
+    user.UserLogins.forEach(ul => {
+      userInfoExtend.userLogins.push({
+        loginProvider: ul.loginProvider,
+        providerKey: ul.providerKey,
+        providerDisplayName: ul.providerDisplayName,
+        userId: ul.userId,
+        accountAvatar: ul.accountAvatar,
+        accountName: ul.accountName,
+        isUnlink: ul.isUnlink,
+      })
+    })
+    await t.commit();
+    return {
+      statusCode: 200,
+      message: "Enable F2A successfully.",
+      user: userInfoExtend,
+    }
+  } catch (error) {
+    await this.rollback();
+    console.log(error);
+    return {
+      statusCode: 400,
+      message: error.message
     }
   }
 }
@@ -431,6 +595,7 @@ const getTokenGoogle = async (code) => {
 }
 
 const loginGoogle = async (params) => {
+  const t = await sequelize.transaction();
   try {
     const data = await getTokenGoogle(params.code);
     const userLink = await db.User.findOne({
@@ -456,10 +621,9 @@ const loginGoogle = async (params) => {
         refreshToken: data.refreshToken,
         expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
         userId: user.id
-      })
+      }, { transaction: t })
 
       const userInfoExtend = await getUserInfo(user.id, params.serviceName);
-
       user.UserLogins.forEach(ul => {
         userInfoExtend.userLogins.push({
           loginProvider: ul.loginProvider,
@@ -471,6 +635,7 @@ const loginGoogle = async (params) => {
           isUnlink: ul.isUnlink,
         })
       })
+      await t.commit();
       return {
         statusCode: 200,
         message: "Login successfully.",
@@ -489,7 +654,7 @@ const loginGoogle = async (params) => {
         accountName: data.email,
         isUnlink: !!userLink?.password || !!userLink.UserLogins?.length,
       }
-      await db.UserLogin.create(newProvider);
+      await db.UserLogin.create(newProvider, { transaction: t });
       const user = await db.User.findOne({
         where: {
           id: newProvider.userId
@@ -501,7 +666,7 @@ const loginGoogle = async (params) => {
         refreshToken: data.refreshToken,
         expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
         userId: user.id
-      })
+      }, { transaction: t })
 
       const userInfoExtend = await getUserInfo(user.id, params.serviceName);
       user.UserLogins.forEach(ul => {
@@ -515,6 +680,7 @@ const loginGoogle = async (params) => {
           isUnlink: ul.isUnlink,
         })
       })
+      await t.commit();
       return {
         statusCode: 200,
         message: "Login successfully.",
@@ -553,8 +719,8 @@ const loginGoogle = async (params) => {
         username: newUserWithProvider.UserName,
         role: "member",
         serviceId: service.id
-      });
-      await db.UserLogin.create(newProvider);
+      }, { transaction: t });
+      await db.UserLogin.create(newProvider, { transaction: t });
       const providers = await db.UserLogin.findAll({
         where: {
           userId: response.id
@@ -566,7 +732,7 @@ const loginGoogle = async (params) => {
         refreshToken: data.refreshToken,
         expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
         userId: response.id
-      })
+      }, { transaction: t })
 
       providers.forEach(ul => {
         response.userLogins.push({
@@ -579,6 +745,7 @@ const loginGoogle = async (params) => {
           isUnlink: ul.isUnlink,
         })
       })
+      await t.commit();
       return {
         statusCode: 200,
         message: "Login successfully.",
@@ -589,6 +756,7 @@ const loginGoogle = async (params) => {
     }
   } catch (error) {
     console.log(error);
+    await t.rollback();
     return {
       statusCode: 500,
       message: error.message
@@ -646,6 +814,7 @@ const unlinkGoogle = async (data) => {
 }
 
 const loginFacebook = async (data) => {
+  const t = await sequelize.transaction();
   try {
     const userProfile = await getUserFacebookInfo(data.facebookAccessToken);
     if (userProfile?.statusCode === 400) return userProfile;
@@ -682,7 +851,8 @@ const loginFacebook = async (data) => {
           refreshToken,
           expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
           userId: user.id
-        })
+        }, { transaction: t })
+        await t.commit();
         return {
           statusCode: 200,
           message: "Login successfully.",
@@ -739,8 +909,8 @@ const loginFacebook = async (data) => {
           username: newUserWithProvider.UserName,
           role: "member",
           serviceId: service.id
-        });
-        await db.UserLogin.create(newProvider);
+        }, { transaction: t });
+        await db.UserLogin.create(newProvider, { transaction: t });
         const providers = await db.UserLogin.findAll({
           where: {
             userId: response.id
@@ -763,7 +933,9 @@ const loginFacebook = async (data) => {
           refreshToken,
           expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
           userId: response.id
-        })
+        }, { transaction: t })
+
+        await t.commit();
         return {
           statusCode: 200,
           message: "Login successfully.",
@@ -775,7 +947,7 @@ const loginFacebook = async (data) => {
       else {
         const userLink = await db.User.findOne({
           where: {
-            id: +data?.userId
+            id: data?.userId
           },
           include: [db.UserLogin]
         })
@@ -788,7 +960,7 @@ const loginFacebook = async (data) => {
           accountName: userProfile.name,
           isUnlink: !!userLink?.password || !!userLink.UserLogins?.length,
         }
-        await db.UserLogin.create(newProvider);
+        await db.UserLogin.create(newProvider, { transaction: t });
 
         const userInfoExtend = await getUserInfo(userLink.id, data.serviceName);
         userLink.UserLogins.forEach(ul => {
@@ -802,8 +974,9 @@ const loginFacebook = async (data) => {
             isUnlink: ul.isUnlink,
           })
         })
-
         userInfoExtend.userLogins.push(newProvider);
+
+        await t.commit();
         return {
           message: "Link account successfully.",
           statusCode: 200,
@@ -956,4 +1129,4 @@ const refreshToken = async (refreshToken, type) => {
   }
 }
 
-export { postLogout, registerUser, loginUser, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo, unlinkGoogle, confirmEmail, forgotPassword, resetPassword }
+export { postLogout, registerUser, loginUser, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo, unlinkGoogle, confirmEmail, forgotPassword, resetPassword, enableF2A, verifyOtp }

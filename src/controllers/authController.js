@@ -1,4 +1,4 @@
-import { confirmEmail, forgotPassword, googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle } from "../services/authService";
+import { confirmEmail, enableF2A, forgotPassword, googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle } from "../services/authService";
 import { verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../services/jwtService";
 
 function setCookie(res, data, cookieATage, cookieRTage) {
@@ -36,10 +36,12 @@ export const authController = {
     const loginData = {
       valueLogin: req.body.username,
       password: req.body.password,
+      remember: req.body.remember
     }
     const result = await loginUser(loginData);
     if (result.statusCode === 200) {
-      setCookie(res, result, 1 * 60 * 1000, 2 * 60 * 60 * 1000);
+      const rtExpiresTime = !loginData.remember ? 2 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+      setCookie(res, result, 1 * 60 * 60 * 1000, rtExpiresTime);
     }
     res.status(result.statusCode).json(result);
   },
@@ -82,7 +84,23 @@ export const authController = {
       email: req.query?.email,
       token: req.query?.token,
     }
+    if (!data.email || !data.token) {
+      return res.status(400).json({
+        statusCode: 400,
+        message: "Invalid email or token."
+      });
+    }
     const result = await confirmEmail(data);
+    res.status(result.statusCode).json(result);
+  },
+  getEnableF2A: async function (req, res, next) {
+    const data = req.body;
+    const result = await enableF2A(data);
+    res.status(result.statusCode).json(result);
+  },
+  postVerifyOtp: async function (req, res, next) {
+    const data = req.body;
+    const result = await verifyOtp(data);
     res.status(result.statusCode).json(result);
   },
   postLogout: async function (req, res, next) {

@@ -18,7 +18,7 @@ module.exports = (sequelize, DataTypes) => {
     loginProvider: DataTypes.STRING,
     providerKey: DataTypes.STRING,
     providerDisplayName: DataTypes.STRING,
-    userId: DataTypes.INTEGER,
+    userId: DataTypes.UUID,
     accountAvatar: DataTypes.STRING,
     accountName: DataTypes.TEXT,
     isUnlink: DataTypes.BOOLEAN

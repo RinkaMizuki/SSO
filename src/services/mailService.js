@@ -11,7 +11,18 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const createMailToken = (payload, expires) => {
+const createEmailConfirmToken = (payload, expires) => {
+  Object.assign(payload, { type: "confirm" });
+  return jwt.sign(payload, process.env.SECRET, {
+    algorithm: 'HS256',
+    expiresIn: expires,
+    issuer: process.env.ISSUER,
+    audience: process.env.AUDIENCE,
+  })
+}
+
+const createResetPasswordToken = (payload, expires) => {
+  Object.assign(payload, { type: "reset" })
   return jwt.sign(payload, process.env.SECRET, {
     algorithm: 'HS256',
     expiresIn: expires,
@@ -32,4 +43,4 @@ async function sendMailAsync(to, subject, html) {
   console.log("Message sent: %s", info.messageId);
   // Message sent: <d786aa62-4e0a-070a-47ed-0b0666549519@ethereal.email>
 }
-export { sendMailAsync, createMailToken }
+export { sendMailAsync, createEmailConfirmToken, createResetPasswordToken }
