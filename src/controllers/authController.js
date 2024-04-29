@@ -1,5 +1,5 @@
-import { confirmEmail, enableF2A, forgotPassword, googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle } from "../services/authService";
-import { verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../services/jwtService";
+import { confirmEmail, enableF2A, forgotPassword, googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle, verifyOtp } from "../services/authService";
+import { certs, verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../services/jwtService";
 
 function setCookie(res, data, cookieATage, cookieRTage) {
   res.cookie("accessToken", data.accessToken,
@@ -94,7 +94,9 @@ export const authController = {
     res.status(result.statusCode).json(result);
   },
   getEnableF2A: async function (req, res, next) {
-    const data = req.body;
+    const data = {
+      phone: req.query?.phone,
+    }
     const result = await enableF2A(data);
     res.status(result.statusCode).json(result);
   },
@@ -192,5 +194,9 @@ export const authController = {
       setCookie(res, result, 60000, 10 * 60 * 1000);
     }
     res.status(result.statusCode).json(result);
+  },
+  getCerts: async function (req, res, next) {
+    const result = certs();
+    res.status(200).json(result);
   }
 }

@@ -281,7 +281,7 @@ const loginUser = async (data) => {
         await db.UserToken.create({
           accessToken: token,
           refreshToken,
-          expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+          expires: new Date(!data.remember ? new Date().setHours(new Date().getHours() + 2) : new Date().setMonth(new Date().getMonth() + 1)),
           userId: user.id
         }, { transaction: t })
         await t.commit();
@@ -429,7 +429,6 @@ const confirmEmail = async (data) => {
 }
 
 const enableF2A = async (params) => {
-
   const otpCode = randomstring.generate({
     length: 4,
     charset: 'numeric'
@@ -455,7 +454,6 @@ const enableF2A = async (params) => {
       }
     ]
   });
-
   const config = {
     method: 'post',
     maxBodyLength: Infinity,
@@ -468,13 +466,12 @@ const enableF2A = async (params) => {
     data: data
   };
 
-  axios.request(config)
+  return axios.request(config)
     .then((response) => {
-      console.log(JSON.stringify(response.data));
-      success = otpCache.set(`otp_${params?.phone}`, otpCode.toString(), 5 * 60);
+      const success = otpCache.set(`otp_${params?.phone}`, otpCode.toString(), 5 * 60);
       if (success) {
         return {
-          message: response.data?.message,
+          message: response?.data?.message,
           statusCode: 200
         }
       }
@@ -493,7 +490,7 @@ const enableF2A = async (params) => {
 }
 
 const verifyOtp = async (data) => {
-  const t = await sequelize.transaction();
+  let t;
   try {
     if (!data?.phone || !data?.otp) {
       return {
@@ -511,13 +508,14 @@ const verifyOtp = async (data) => {
     if (value.toString() != data?.otp.toString()) {
       return {
         statusCode: 400,
-        message: "Invalid otp.",
+        message: "Invalid/Incorrect otp. Please try again.",
       }
     }
     const user = await db.User.findOne({
       where: {
         id: data?.userId
-      }
+      },
+      include: [db.Service, db.UserLogin]
     })
     if (!user) {
       return {
@@ -525,6 +523,7 @@ const verifyOtp = async (data) => {
         message: "User not found."
       }
     }
+    t = await sequelize.transaction();
     await db.User.update(
       { f2a: data?.isF2A },
       {
@@ -545,14 +544,15 @@ const verifyOtp = async (data) => {
         isUnlink: ul.isUnlink,
       })
     })
+    userInfoExtend.f2a = data?.isF2A;
     await t.commit();
     return {
       statusCode: 200,
-      message: "Enable F2A successfully.",
+      message: data?.isF2A ? "Enabled F2A successfully." : "Disabled F2A successfully.",
       user: userInfoExtend,
     }
   } catch (error) {
-    await this.rollback();
+    await t.rollback();
     console.log(error);
     return {
       statusCode: 400,
@@ -689,7 +689,9 @@ const loginGoogle = async (params) => {
         refreshToken: data.refreshToken,
       }
     } else {
+      const userId = uuid.v4();
       const newUserWithProvider = {
+        UserId: userId,
         UserName: data.email,
         Email: data.email,
         BirthDate: new Date(),
@@ -701,7 +703,7 @@ const loginGoogle = async (params) => {
       }
       const response = await postUserInfo(newUserWithProvider, params.serviceName)
       const newProvider = {
-        userId: response.id,
+        userId: userId,
         loginProvider: data.providerName,
         providerKey: data.providerId,
         providerDisplayName: data.providerDisplayName,
@@ -715,6 +717,7 @@ const loginGoogle = async (params) => {
         }
       })
       await db.User.create({
+        id: userId,
         email: newUserWithProvider.Email,
         username: newUserWithProvider.UserName,
         role: "member",
@@ -723,7 +726,7 @@ const loginGoogle = async (params) => {
       await db.UserLogin.create(newProvider, { transaction: t });
       const providers = await db.UserLogin.findAll({
         where: {
-          userId: response.id
+          userId: userId
         }
       })
 
@@ -731,7 +734,7 @@ const loginGoogle = async (params) => {
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
         expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
-        userId: response.id
+        userId: userId
       }, { transaction: t })
 
       providers.forEach(ul => {
@@ -877,7 +880,9 @@ const loginFacebook = async (data) => {
             message: `Email ${userProfile.email} is already used by a login method other than Facebook.`
           }
         }
+        const userId = uuid.v4();
         const newUserWithProvider = {
+          UserId: userId,
           UserName: userProfile.email,
           Email: userProfile.email,
           BirthDate: new Date(),
@@ -889,7 +894,7 @@ const loginFacebook = async (data) => {
         }
         const response = await postUserInfo(newUserWithProvider, data.serviceName)
         const newProvider = {
-          userId: response.id,
+          userId: userId,
           loginProvider: "Facebook",
           providerKey: userProfile.id,
           providerDisplayName: "Facebook",
@@ -905,6 +910,7 @@ const loginFacebook = async (data) => {
         const accessToken = createFacebookJWT(userProfile);
         const refreshToken = createRefreshToken();
         await db.User.create({
+          id: userId,
           email: newUserWithProvider.Email,
           username: newUserWithProvider.UserName,
           role: "member",
@@ -913,7 +919,7 @@ const loginFacebook = async (data) => {
         await db.UserLogin.create(newProvider, { transaction: t });
         const providers = await db.UserLogin.findAll({
           where: {
-            userId: response.id
+            userId: userId
           }
         })
         providers.forEach(ul => {
@@ -932,7 +938,7 @@ const loginFacebook = async (data) => {
           accessToken,
           refreshToken,
           expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
-          userId: response.id
+          userId: userId
         }, { transaction: t })
 
         await t.commit();
@@ -1058,18 +1064,17 @@ const refreshToken = async (refreshToken, type) => {
       statusCode: 403
     };
   }
-
   const currRfToken = await db.UserToken.findOne({
     where: {
       refreshToken,
     }
   })
-
+  console.log(currRfToken.expires.getTime());
   if (!currRfToken || currRfToken.expires.getTime() <= Date.now()) {
     if (currRfToken) {
       await db.UserToken.destroy({
         where: {
-          refreshToken: currRfToken,
+          refreshToken: currRfToken.refreshToken,
         },
       });
     }

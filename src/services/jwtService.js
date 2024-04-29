@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 const uuid = require('uuid');
+const fs = require('fs');
 const { OAuth2Client } = require('google-auth-library');
 
 const createJWT = (payload) => {
@@ -44,11 +45,13 @@ const verifyFacebookJWT = (fbToken) => {
 
 const verifyGoogleJWT = async (ggToken) => {
   try {
+    const certs = JSON.parse(fs.readFileSync('./././google-cerfiticates.json'))
     const client = new OAuth2Client();
-    await client.verifyIdToken({
-      idToken: ggToken,
-      audience: process.env.CLIENT_ID,
-    });
+    await client.verifySignedJwtWithCertsAsync(ggToken, certs)
+    // await client.verifyIdToken({
+    //   idToken: ggToken,
+    //   audience: process.env.CLIENT_ID,
+    // });
     return { statusCode: 200, message: "Verify successfully google.", token: ggToken };
   } catch (error) {
     return {
