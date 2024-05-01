@@ -241,7 +241,7 @@ const postLogout = async (rt, at, userId) => {
     }
   }
 }
-const loginUser = async (data) => {
+const postLogin = async (data) => {
   const t = await sequelize.transaction();
   try {
     const user = await db.User.findOne({
@@ -394,7 +394,6 @@ const confirmEmail = async (data) => {
       }
     }
     const isValid = validateEmailConfirmToken(data.token);
-    console.log(isValid);
     if (!isValid) {
       return {
         message: "Confirm email failure.",
@@ -1057,8 +1056,9 @@ const googleLink = async (userId, params) => {
   }
 }
 
-const refreshToken = async (refreshToken, type) => {
+const refreshToken = async (refreshToken, type, remember) => {
   if (!refreshToken) {
+    console.log("Cookie not contain RefreshToken");
     return {
       message: "Refresh token failed",
       statusCode: 403
@@ -1069,15 +1069,17 @@ const refreshToken = async (refreshToken, type) => {
       refreshToken,
     }
   })
-  console.log(currRfToken.expires.getTime());
+
   if (!currRfToken || currRfToken.expires.getTime() <= Date.now()) {
     if (currRfToken) {
+      console.log("RefreshToken was expired");
       await db.UserToken.destroy({
         where: {
           refreshToken: currRfToken.refreshToken,
         },
       });
     }
+    console.log("Not found RefreshToken in DB", refreshToken, currRfToken);
     return {
       message: "Refresh token failed",
       statusCode: 403
@@ -1090,13 +1092,17 @@ const refreshToken = async (refreshToken, type) => {
     },
     include: db.Service
   })
+  let expired;
   let newAccessToken;
   let newRefreshToken;
   const payload = getListClaim(user);
   if (type === 'facebook') {
+
+    expired = new Date(new Date().setHours(new Date().getHours() + 2));
     newAccessToken = createFacebookJWT(payload);
     newRefreshToken = createRefreshToken();
   } else if (type === 'default') {
+    expired = new Date(remember === "false" ? new Date().setHours(new Date().getHours() + 2) : new Date().setMonth(new Date().getMonth() + 1));
     newAccessToken = createJWT(payload);
     newRefreshToken = createRefreshToken();
   }
@@ -1110,14 +1116,17 @@ const refreshToken = async (refreshToken, type) => {
         scope: "openid profile email",
       }
     });
+    expired = new Date(new Date().setHours(new Date().getHours() + 2));
+
     newAccessToken = id_token;
     newRefreshToken = currRfToken.refreshToken;
   }
+  console.log("new refresh_token", newRefreshToken);
   await db.UserToken.update(
     {
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
-      expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+      expires: expired,
       updatedAt: new Date(),
     },
     {
@@ -1127,11 +1136,12 @@ const refreshToken = async (refreshToken, type) => {
     },
   );
   return {
+    user,
     message: "Refresh token successfully.",
     statusCode: 200,
     accessToken: newAccessToken,
-    refreshToken: newRefreshToken
+    refreshToken: newRefreshToken,
   }
 }
 
-export { postLogout, registerUser, loginUser, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo, unlinkGoogle, confirmEmail, forgotPassword, resetPassword, enableF2A, verifyOtp }
+export { postLogout, registerUser, postLogin, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo, unlinkGoogle, confirmEmail, forgotPassword, resetPassword, enableF2A, verifyOtp }

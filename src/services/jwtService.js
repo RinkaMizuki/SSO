@@ -6,7 +6,7 @@ const { OAuth2Client } = require('google-auth-library');
 const createJWT = (payload) => {
   return jwt.sign(payload, process.env.SECRET, {
     algorithm: 'HS256',
-    expiresIn: process.env.EXPIRES,
+    expiresIn: +process.env.EXPIRES,
     issuer: process.env.ISSUER,
     audience: process.env.AUDIENCE,
   })

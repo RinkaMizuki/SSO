@@ -1,6 +1,6 @@
 import passport from "passport";
 import LocalStrategy from "passport-local";
-import { loginUser } from "../services/authService";
+import { postLogin } from "../services/authService";
 
 export const configPassport = () => {
   passport.use(new LocalStrategy(
@@ -10,7 +10,7 @@ export const configPassport = () => {
         valueLogin: username,
         password,
       }
-      const result = await loginUser(loginData);
+      const result = await postLogin(loginData);
       if (result && result.statusCode === 200) {
         return done(null, result)
       }

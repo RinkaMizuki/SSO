@@ -1,20 +1,22 @@
-import { confirmEmail, enableF2A, forgotPassword, googleLink, loginFacebook, loginGoogle, loginUser, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle, verifyOtp } from "../services/authService";
-import { certs, verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../services/jwtService";
+import { confirmEmail, enableF2A, forgotPassword, googleLink, loginFacebook, loginGoogle, postLogin, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle, verifyOtp } from "../../services/authService";
+import { verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../../services/jwtService";
 
 function setCookie(res, data, cookieATage, cookieRTage) {
-  res.cookie("accessToken", data.accessToken,
-    {
-      maxAge: cookieATage,
-      httpOnly: true,
-    }
-  )
   res.cookie("refreshToken", data.refreshToken,
     {
       maxAge: cookieRTage,
       httpOnly: true,
     }
   )
-  delete data["accessToken"]
+  if (data.user?.role !== "admin") {
+    res.cookie("accessToken", data.accessToken,
+      {
+        maxAge: cookieATage,
+        httpOnly: true,
+      }
+    )
+    delete data["accessToken"]
+  }
   delete data["refreshToken"]
 }
 
@@ -38,10 +40,10 @@ export const authController = {
       password: req.body.password,
       remember: req.body.remember
     }
-    const result = await loginUser(loginData);
+    const result = await postLogin(loginData);
     if (result.statusCode === 200) {
       const rtExpiresTime = !loginData.remember ? 2 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
-      setCookie(res, result, 1 * 60 * 60 * 1000, rtExpiresTime);
+      setCookie(res, result, 60 * 1000, rtExpiresTime);
     }
     res.status(result.statusCode).json(result);
   },
@@ -137,7 +139,7 @@ export const authController = {
     const data = req.body;
     const result = await loginGoogle(data);
     if (result.statusCode === 200) {
-      setCookie(res, result, 5 * 60 * 1000, 10 * 60 * 1000);
+      setCookie(res, result, 60 * 1000, 2 * 60 * 60 * 1000);
     }
     res.status(result.statusCode).json(result);
   },
@@ -150,7 +152,7 @@ export const authController = {
     }
     const data = await loginFacebook(params);
     if (data.statusCode === 200 && params.type === "login") {
-      setCookie(res, data, 2 * 60 * 1000, 10 * 60 * 1000);
+      setCookie(res, data, 60 * 1000, 2 * 60 * 60 * 1000);
     }
     res.status(data.statusCode).json(data);
   },
@@ -189,14 +191,19 @@ export const authController = {
   },
   getRefreshToken: async function (req, res, next) {
     const rfToken = req.cookies?.refreshToken;
-    const result = await refreshToken(rfToken, req.query.type);
+    const remember = req.query?.remember;
+    const type = req.query?.type;
+    const result = await refreshToken(rfToken, type, remember);
     if (result.statusCode === 200) {
-      setCookie(res, result, 60000, 10 * 60 * 1000);
+      let rtExpiresTime;
+      if (type === 'default') {
+        rtExpiresTime = remember === "false" ? 2 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+      } else {
+        rtExpiresTime = 2 * 60 * 60 * 1000;
+      }
+      setCookie(res, result, 60 * 1000, rtExpiresTime);
     }
+    delete result['user']
     res.status(result.statusCode).json(result);
   },
-  getCerts: async function (req, res, next) {
-    const result = certs();
-    res.status(200).json(result);
-  }
 }
