@@ -11,6 +11,20 @@ const createJWT = (payload) => {
     audience: process.env.AUDIENCE,
   })
 }
+
+const createFacebookJWT = (payload) => {
+  return jwt.sign(payload, process.env.FB_APP_SECRET, {
+    algorithm: 'HS256',
+    expiresIn: +process.env.EXPIRES,
+    issuer: process.env.FB_ISSUER,
+    audience: process.env.FB_APP_ID,
+  })
+}
+
+const createRefreshToken = () => {
+  return uuid.v4();
+}
+
 const verifyJWT = (token) => {
   const secret = process.env.SECRET;
   try {
@@ -59,19 +73,6 @@ const verifyGoogleJWT = async (ggToken) => {
       message: error.message
     };
   }
-}
-
-const createFacebookJWT = (payload) => {
-  return jwt.sign(payload, process.env.FB_APP_SECRET, {
-    algorithm: 'HS256',
-    expiresIn: process.env.EXPIRES,
-    issuer: process.env.FB_ISSUER,
-    audience: process.env.FB_APP_ID,
-  })
-}
-
-const createRefreshToken = () => {
-  return uuid.v4();
 }
 
 export {

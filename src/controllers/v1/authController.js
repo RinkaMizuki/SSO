@@ -1,5 +1,6 @@
 import { confirmEmail, enableF2A, forgotPassword, googleLink, loginFacebook, loginGoogle, postLogin, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle, verifyOtp } from "../../services/authService";
 import { verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../../services/jwtService";
+import { cookieExpires } from "../../services/timeExpires";
 
 function setCookie(res, data, cookieATage, cookieRTage) {
   res.cookie("refreshToken", data.refreshToken,
@@ -42,8 +43,8 @@ export const authController = {
     }
     const result = await postLogin(loginData);
     if (result.statusCode === 200) {
-      const rtExpiresTime = !loginData.remember ? 2 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
-      setCookie(res, result, 60 * 1000, rtExpiresTime);
+      const rtExpiresTime = !loginData.remember ? cookieExpires.rfTokenNotRemember : cookieExpires.rfTokenRemember;
+      setCookie(res, result, cookieExpires.acToken, rtExpiresTime);
     }
     res.status(result.statusCode).json(result);
   },
@@ -64,7 +65,7 @@ export const authController = {
       email: req.body?.email,
       returnUrl: req.body?.returnUrl
     }
-    if (!data.email || !data.returnUrl) {
+    if (!data?.email || !data.returnUrl) {
       return res.status(400).json({
         statusCode: 400,
         message: "Invalid returnUrl or email."
@@ -139,7 +140,7 @@ export const authController = {
     const data = req.body;
     const result = await loginGoogle(data);
     if (result.statusCode === 200) {
-      setCookie(res, result, 60 * 1000, 2 * 60 * 60 * 1000);
+      setCookie(res, result, cookieExpires.acToken, cookieExpires.rfTokenNotRemember);
     }
     res.status(result.statusCode).json(result);
   },
@@ -152,7 +153,7 @@ export const authController = {
     }
     const data = await loginFacebook(params);
     if (data.statusCode === 200 && params.type === "login") {
-      setCookie(res, data, 60 * 1000, 2 * 60 * 60 * 1000);
+      setCookie(res, data, cookieExpires.acToken, cookieExpires.rfTokenNotRemember);
     }
     res.status(data.statusCode).json(data);
   },
@@ -197,11 +198,11 @@ export const authController = {
     if (result.statusCode === 200) {
       let rtExpiresTime;
       if (type === 'default') {
-        rtExpiresTime = remember === "false" ? 2 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+        rtExpiresTime = remember === "false" ? cookieExpires.rfTokenNotRemember : cookieExpires.rfTokenRemember;
       } else {
-        rtExpiresTime = 2 * 60 * 60 * 1000;
+        rtExpiresTime = cookieExpires.rfTokenNotRemember;
       }
-      setCookie(res, result, 60 * 1000, rtExpiresTime);
+      setCookie(res, result, cookieExpires.acToken, rtExpiresTime);
     }
     delete result['user']
     res.status(result.statusCode).json(result);

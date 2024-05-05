@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const randomstring = require("randomstring");
 import axios from "axios";
 import { createEmailConfirmToken, createResetPasswordToken, sendMailAsync } from "./mailService";
+import { timeExpires } from "./timeExpires";
 const nodeCache = require("node-cache");
 const otpCache = new nodeCache();
 
@@ -281,7 +282,7 @@ const postLogin = async (data) => {
         await db.UserToken.create({
           accessToken: token,
           refreshToken,
-          expires: new Date(!data.remember ? new Date().setHours(new Date().getHours() + 2) : new Date().setMonth(new Date().getMonth() + 1)),
+          expires: !data.remember ? timeExpires.notRemember : timeExpires.remember,
           userId: user.id
         }, { transaction: t })
         await t.commit();
@@ -321,10 +322,16 @@ const forgotPassword = async (data) => {
   try {
     const user = await db.User.findOne({
       where: {
-        email: data.email,
+        email: data?.email,
       },
       include: [db.Service]
     })
+    if (!user) {
+      return {
+        statusCode: 404,
+        message: "Email not found."
+      }
+    }
     const payload = getListClaim(user);
     const token = createResetPasswordToken(payload, 5 * 60);
     const message = `${data.returnUrl}?token=${token}`;
@@ -618,7 +625,7 @@ const loginGoogle = async (params) => {
       await db.UserToken.create({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
-        expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+        expires: timeExpires.notRemember,
         userId: user.id
       }, { transaction: t })
 
@@ -663,7 +670,7 @@ const loginGoogle = async (params) => {
       await db.UserToken.create({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
-        expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+        expires: timeExpires.notRemember,
         userId: user.id
       }, { transaction: t })
 
@@ -732,7 +739,7 @@ const loginGoogle = async (params) => {
       await db.UserToken.create({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
-        expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+        expires: timeExpires.notRemember,
         userId: userId
       }, { transaction: t })
 
@@ -851,7 +858,7 @@ const loginFacebook = async (data) => {
         await db.UserToken.create({
           accessToken,
           refreshToken,
-          expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+          expires: timeExpires.notRemember,
           userId: user.id
         }, { transaction: t })
         await t.commit();
@@ -936,7 +943,7 @@ const loginFacebook = async (data) => {
         await db.UserToken.create({
           accessToken,
           refreshToken,
-          expires: new Date(new Date().setMinutes(new Date().getMinutes() + 10)),
+          expires: timeExpires.notRemember,
           userId: userId
         }, { transaction: t })
 
@@ -1097,12 +1104,11 @@ const refreshToken = async (refreshToken, type, remember) => {
   let newRefreshToken;
   const payload = getListClaim(user);
   if (type === 'facebook') {
-
-    expired = new Date(new Date().setHours(new Date().getHours() + 2));
+    expired = timeExpires.notRemember;
     newAccessToken = createFacebookJWT(payload);
     newRefreshToken = createRefreshToken();
   } else if (type === 'default') {
-    expired = new Date(remember === "false" ? new Date().setHours(new Date().getHours() + 2) : new Date().setMonth(new Date().getMonth() + 1));
+    expired = remember === "false" ? timeExpires.notRemember : timeExpires.remember;
     newAccessToken = createJWT(payload);
     newRefreshToken = createRefreshToken();
   }
@@ -1116,8 +1122,8 @@ const refreshToken = async (refreshToken, type, remember) => {
         scope: "openid profile email",
       }
     });
-    expired = new Date(new Date().setHours(new Date().getHours() + 2));
 
+    expired = timeExpires.notRemember;
     newAccessToken = id_token;
     newRefreshToken = currRfToken.refreshToken;
   }
