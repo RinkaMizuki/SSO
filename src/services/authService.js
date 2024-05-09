@@ -23,17 +23,32 @@ const getUserInfo = async (userId, userService) => {
     return response.data;
   } catch (err) {
     console.log(err);
+    throw err;
   }
 }
 const postUserInfo = async (data, userService) => {
   try {
     const httpRequest = axios.create({
-      baseURL: userService === "Ecommerce" ? process.env.ECOMMERCE_BASE_URL : "",
+      baseURL: userService === "Ecommerce" ? process.env.ECOMMERCE_BASE_URL : "",//cần truyền serviceName để call api của service đó
     })
     const response = await httpRequest.post('api/v1/Admin/users/post', data);
     return response.data;
   } catch (err) {
     console.log(err);
+    throw err;
+  }
+}
+
+const updateUserConfirm = async (userId, userService) => {
+  try {
+    const httpRequest = axios.create({
+      baseURL: userService === "Ecommerce" ? process.env.ECOMMERCE_BASE_URL : "",//cần truyền serviceName để call api của service đó
+    })
+    const response = await httpRequest.get(`api/v1/Admin/users/confirm-email/${userId}`);
+    return response.data;
+  } catch (err) {
+    console.log(err);
+    throw err;
   }
 }
 
@@ -140,6 +155,32 @@ const validateResetPasswordToken = (token) => {
   });
 }
 
+const validateOtp = (data) => {
+  if (!data?.phone || !data?.otp) {
+    return {
+      statusCode: 401,
+      message: "Invalid otp/phone."
+    }
+  }
+  const value = otpCache.get(`otp_${data?.phone}`);
+  if (!value) {
+    return {
+      statusCode: 404,
+      message: "Your otp expired. Please try again.",
+    }
+  }
+  if (value.toString() != data?.otp.toString()) {
+    return {
+      statusCode: 401,
+      message: "Invalid/Incorrect otp. Please try again.",
+    }
+  }
+  return {
+    statusCode: 200,
+    message: "Valid otp."
+  }
+}
+
 const registerUser = async (data) => {
   const t = await sequelize.transaction();
   try {
@@ -196,7 +237,7 @@ const registerUser = async (data) => {
       Avatar: ""
     }, data.serviceName)
     const token = createEmailConfirmToken(newUser, "1h");
-    const message = `${data.serviceUrl}confirm-email?email=${newUser.email}&token=${token}`;
+    const message = `${data.serviceUrl}confirm-email?email=${newUser.email}&token=${token}&serviceName=${data.serviceName}`;
     await sendMailAsync(newUser.email, "Please confirm your email.", `Click here to confirm your email. <a href=\"${message}\">Click here!</a>`)
     await t.commit();
     return {
@@ -388,6 +429,7 @@ const resetPassword = async (data) => {
 }
 
 const confirmEmail = async (data) => {
+  const t = await sequelize.transaction();
   try {
     const userConfirm = await db.User.findOne({
       where: {
@@ -413,19 +455,23 @@ const confirmEmail = async (data) => {
         statusCode: 409,
       }
     }
+
     await db.User.update(
       { emailConfirm: true },
       {
         where: { email: data.email },
+        transaction: t
       },
     );
-
+    await updateUserConfirm(userConfirm.id, data.serviceName);
+    await t.commit();
     return {
       statusCode: 200,
       message: "Confirm email successfully."
     }
 
   } catch (err) {
+    await t.rollback();
     console.log(err);
     return {
       statusCode: 500,
@@ -439,6 +485,7 @@ const enableF2A = async (params) => {
     length: 4,
     charset: 'numeric'
   });
+  console.log("otpCode:::", otpCode);
   const data = JSON.stringify({
     "from": {
       "type": "external",
@@ -473,8 +520,8 @@ const enableF2A = async (params) => {
   };
 
   return axios.request(config)
-    .then((response) => {
-      const success = otpCache.set(`otp_${params?.phone}`, otpCode.toString(), 5 * 60);
+    .then(async (response) => {
+      const success = otpCache.set(`otp_${params?.phone}`, otpCode.toString(), 60);
       if (success) {
         return {
           message: response?.data?.message,
@@ -495,68 +542,92 @@ const enableF2A = async (params) => {
     });
 }
 
-const verifyOtp = async (data) => {
-  let t;
+const verifyOtp = async (data, verifyType) => {
+  const t = await sequelize.transaction();
   try {
-    if (!data?.phone || !data?.otp) {
-      return {
-        statusCode: 400,
-        message: "Invalid otp/phone."
-      }
+    const otpValidateResult = validateOtp(data);
+    if (otpValidateResult.statusCode === 404 || otpValidateResult.statusCode === 401) {
+      return otpValidateResult;
     }
-    const value = otpCache.get(`otp_${data?.phone}`);
-    if (!value) {
-      return {
-        statusCode: 404,
-        message: "Your otp expired. Please try again.",
-      }
-    }
-    if (value.toString() != data?.otp.toString()) {
-      return {
-        statusCode: 400,
-        message: "Invalid/Incorrect otp. Please try again.",
-      }
-    }
-    const user = await db.User.findOne({
-      where: {
-        id: data?.userId
-      },
-      include: [db.Service, db.UserLogin]
-    })
-    if (!user) {
-      return {
-        statusCode: 404,
-        message: "User not found."
-      }
-    }
-    t = await sequelize.transaction();
-    await db.User.update(
-      { f2a: data?.isF2A },
-      {
+
+    if (verifyType === 'verify-f2a') {
+      const user = await db.User.findOne({
         where: {
           id: data?.userId
         },
-        transaction: t
+        include: [db.Service, db.UserLogin]
       })
-    const userInfoExtend = await getUserInfo(data?.userId, user?.Service.serviceName);
-    user.UserLogins.forEach(ul => {
-      userInfoExtend.userLogins.push({
-        loginProvider: ul.loginProvider,
-        providerKey: ul.providerKey,
-        providerDisplayName: ul.providerDisplayName,
-        userId: ul.userId,
-        accountAvatar: ul.accountAvatar,
-        accountName: ul.accountName,
-        isUnlink: ul.isUnlink,
+      if (!user) {
+        return {
+          statusCode: 404,
+          message: "User not found."
+        }
+      }
+      await db.User.update(
+        {
+          f2a: data?.isF2A,
+          phone: data?.phone
+        },
+        {
+          where: {
+            id: data?.userId
+          },
+          transaction: t
+        })
+      const userInfoExtend = await getUserInfo(data?.userId, user?.Service.serviceName);
+      user.UserLogins.forEach(ul => {
+        userInfoExtend.userLogins.push({
+          loginProvider: ul.loginProvider,
+          providerKey: ul.providerKey,
+          providerDisplayName: ul.providerDisplayName,
+          userId: ul.userId,
+          accountAvatar: ul.accountAvatar,
+          accountName: ul.accountName,
+          isUnlink: ul.isUnlink,
+        })
       })
-    })
-    userInfoExtend.f2a = data?.isF2A;
-    await t.commit();
-    return {
-      statusCode: 200,
-      message: data?.isF2A ? "Enabled F2A successfully." : "Disabled F2A successfully.",
-      user: userInfoExtend,
+      userInfoExtend.f2a = data?.isF2A;
+      await t.commit();
+      return {
+        statusCode: 200,
+        message: data?.isF2A ? "Enabled F2A successfully." : "Disabled F2A successfully.",
+        user: userInfoExtend,
+      }
+    } else if (verifyType === 'verify-login') {
+      const user = await db.User.findOne({
+        where: {
+          phone: data?.phone
+        },
+        include: [db.Service, db.UserLogin]
+      })
+      if (!user) {
+        return {
+          statusCode: 404,
+          message: "User not found."
+        }
+      }
+      const userInfoExtend = await getUserInfo(user?.id, user?.Service.serviceName);
+      user.UserLogins.forEach(ul => {
+        userInfoExtend.userLogins.push({
+          loginProvider: ul.loginProvider,
+          providerKey: ul.providerKey,
+          providerDisplayName: ul.providerDisplayName,
+          userId: ul.userId,
+          accountAvatar: ul.accountAvatar,
+          accountName: ul.accountName,
+          isUnlink: ul.isUnlink,
+        })
+      })
+      userInfoExtend.f2a = user?.f2a;
+      await t.commit();
+
+      return {
+        statusCode: 200,
+        message: "Login successfully.",
+        user: userInfoExtend
+      }
     }
+
   } catch (error) {
     await t.rollback();
     console.log(error);

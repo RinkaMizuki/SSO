@@ -86,11 +86,18 @@ export const authController = {
     const data = {
       email: req.query?.email,
       token: req.query?.token,
+      serviceName: req.query?.serviceName
     }
     if (!data.email || !data.token) {
       return res.status(400).json({
         statusCode: 400,
         message: "Invalid email or token."
+      });
+    }
+    if (!data.serviceName) {
+      return res.status(400).json({
+        statusCode: 400,
+        message: "ServiceName not provice."
       });
     }
     const result = await confirmEmail(data);
@@ -105,7 +112,8 @@ export const authController = {
   },
   postVerifyOtp: async function (req, res, next) {
     const data = req.body;
-    const result = await verifyOtp(data);
+    const type = req.query?.type;
+    const result = await verifyOtp(data, type);
     res.status(result.statusCode).json(result);
   },
   postLogout: async function (req, res, next) {
