@@ -304,6 +304,14 @@ const postLogin = async (data) => {
       const isCorrectPassword = checkUserPassword(data.password, user.password);
       if (isCorrectPassword) {
         const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName);
+        if (userInfoExtend.isActive) {
+          await t.commit();
+          return {
+            isBan: true,
+            statusCode: 403,
+            message: "Your account has been banned. Please contact admin@gmail.com for more details."
+          }
+        }
         user.UserLogins.forEach(ul => {
           userInfoExtend.userLogins.push({
             loginProvider: ul.loginProvider,
@@ -1135,89 +1143,114 @@ const googleLink = async (userId, params) => {
 }
 
 const refreshToken = async (refreshToken, type, remember) => {
-  if (!refreshToken) {
-    console.log("Cookie not contain RefreshToken");
-    return {
-      message: "Refresh token failed",
-      statusCode: 403
-    };
-  }
-  const currRfToken = await db.UserToken.findOne({
-    where: {
-      refreshToken,
+  const t = await sequelize.transaction();
+  try {
+    if (!refreshToken) {
+      console.log("Cookie not contain RefreshToken");
+      return {
+        message: "Refresh token failed.",
+        statusCode: 403
+      };
     }
-  })
-
-  if (!currRfToken || currRfToken.expires.getTime() <= Date.now()) {
-    if (currRfToken) {
-      console.log("RefreshToken was expired");
-      await db.UserToken.destroy({
-        where: {
-          refreshToken: currRfToken.refreshToken,
-        },
-      });
-    }
-    console.log("Not found RefreshToken in DB", refreshToken, currRfToken);
-    return {
-      message: "Refresh token failed",
-      statusCode: 403
-    };
-  }
-
-  const user = await db.User.findOne({
-    where: {
-      id: currRfToken.userId,
-    },
-    include: db.Service
-  })
-  let expired;
-  let newAccessToken;
-  let newRefreshToken;
-  const payload = getListClaim(user);
-  if (type === 'facebook') {
-    expired = timeExpires.notRemember;
-    newAccessToken = createFacebookJWT(payload);
-    newRefreshToken = createRefreshToken();
-  } else if (type === 'default') {
-    expired = remember === "false" ? timeExpires.notRemember : timeExpires.remember;
-    newAccessToken = createJWT(payload);
-    newRefreshToken = createRefreshToken();
-  }
-  else {
-    const { data: { id_token, access_token } } = await axios.post(`${process.env.GOOGLE_TOKEN_URI}/token`, null, {
-      params: {
-        client_id: process.env.CLIENT_ID,
-        client_secret: process.env.CLIENT_SECRET,
-        grant_type: "refresh_token",
-        refresh_token: currRfToken.refreshToken,
-        scope: "openid profile email",
+    const currRfToken = await db.UserToken.findOne({
+      where: {
+        refreshToken,
       }
-    });
+    })
 
-    expired = timeExpires.notRemember;
-    newAccessToken = id_token;
-    newRefreshToken = currRfToken.refreshToken;
-  }
-  console.log("new refresh_token", newRefreshToken);
-  await db.UserToken.update(
-    {
+    const user = await db.User.findOne({
+      where: {
+        id: currRfToken.userId,
+      },
+      include: db.Service
+    })
+
+    const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName)
+    if (userInfoExtend.isActive) {
+      await t.commit();
+      return {
+        isBan: true,
+        statusCode: 403,
+        message: "Your account has been banned. Please contact admin@gmail.com for more details."
+      }
+    }
+
+    if (!currRfToken || currRfToken.expires.getTime() <= Date.now()) {
+      if (currRfToken) {
+        console.log("RefreshToken was expired");
+        await db.UserToken.destroy({
+          where: {
+            refreshToken: currRfToken.refreshToken,
+          },
+          transaction: t
+        });
+      }
+      await t.commit();
+      console.log("Not found RefreshToken in DB", refreshToken, currRfToken);
+      return {
+        message: "Refresh token failed",
+        statusCode: 403
+      };
+    }
+
+    let expired;
+    let newAccessToken;
+    let newRefreshToken;
+    const payload = getListClaim(user);
+    if (type === 'facebook') {
+      expired = timeExpires.notRemember;
+      newAccessToken = createFacebookJWT(payload);
+      newRefreshToken = createRefreshToken();
+    } else if (type === 'default') {
+      expired = remember === "false" ? timeExpires.notRemember : timeExpires.remember;
+      newAccessToken = createJWT(payload);
+      newRefreshToken = createRefreshToken();
+    }
+    else {
+      const { data: { id_token, access_token } } = await axios.post(`${process.env.GOOGLE_TOKEN_URI}/token`, null, {
+        params: {
+          client_id: process.env.CLIENT_ID,
+          client_secret: process.env.CLIENT_SECRET,
+          grant_type: "refresh_token",
+          refresh_token: currRfToken.refreshToken,
+          scope: "openid profile email",
+        }
+      });
+
+      expired = timeExpires.notRemember;
+      newAccessToken = id_token;
+      newRefreshToken = currRfToken.refreshToken;
+    }
+    console.log("new refresh_token", newRefreshToken);
+    await db.UserToken.update(
+      {
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+        expires: expired,
+        updatedAt: new Date(),
+      },
+      {
+        where: {
+          userId: user.id,
+        },
+        transaction: t
+      },
+    );
+    await t.commit();
+    return {
+      user,
+      message: "Refresh token successfully.",
+      statusCode: 200,
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
-      expires: expired,
-      updatedAt: new Date(),
-    },
-    {
-      where: {
-        userId: user.id,
-      },
-    },
-  );
-  return {
-    user,
-    message: "Refresh token successfully.",
-    statusCode: 200,
-    accessToken: newAccessToken,
-    refreshToken: newRefreshToken,
+    }
+  } catch (error) {
+    await t.rollback();
+    console.log(error);
+    return {
+      statusCode: 500,
+      message: "Refresh token failed."
+    }
   }
 }
 
