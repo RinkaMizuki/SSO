@@ -1146,6 +1146,7 @@ const refreshToken = async (refreshToken, type, remember) => {
   const t = await sequelize.transaction();
   try {
     if (!refreshToken) {
+      await t.commit();
       console.log("Cookie not contain RefreshToken");
       return {
         message: "Refresh token failed.",
