@@ -1,9 +1,12 @@
 import express from "express";
 import { authController } from "../../controllers/v1/authController";
+import { adminMiddleware } from "../../middlewares/authMiddleware";
 
 const authRoutes = express.Router();
 
 authRoutes.post('/login', authController.postLogin)
+
+authRoutes.post('/login-admin', adminMiddleware, authController.postLogin)
 
 authRoutes.post('/register', authController.postRegister)
 

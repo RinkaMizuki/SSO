@@ -1158,24 +1158,6 @@ const refreshToken = async (refreshToken, type, remember) => {
         refreshToken,
       }
     })
-
-    const user = await db.User.findOne({
-      where: {
-        id: currRfToken.userId,
-      },
-      include: db.Service
-    })
-
-    const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName)
-    if (userInfoExtend.isActive) {
-      await t.commit();
-      return {
-        isBan: true,
-        statusCode: 403,
-        message: "Your account has been banned. Please contact admin@gmail.com for more details."
-      }
-    }
-
     if (!currRfToken || currRfToken.expires.getTime() <= Date.now()) {
       if (currRfToken) {
         console.log("RefreshToken was expired");
@@ -1192,6 +1174,23 @@ const refreshToken = async (refreshToken, type, remember) => {
         message: "Refresh token failed",
         statusCode: 403
       };
+    }
+
+    const user = await db.User.findOne({
+      where: {
+        id: currRfToken.userId,
+      },
+      include: db.Service
+    })
+
+    const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName)
+    if (userInfoExtend.isActive) {
+      await t.commit();
+      return {
+        isBan: true,
+        statusCode: 403,
+        message: "Your account has been banned. Please contact admin@gmail.com for more details."
+      }
     }
 
     let expired;
