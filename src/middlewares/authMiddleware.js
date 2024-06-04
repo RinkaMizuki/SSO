@@ -26,6 +26,10 @@ const adminMiddleware = async (req, res, next) => {
     })
   } catch (error) {
     console.log(error);
+    return res.status(500).json({
+      statusCode: 500,
+      message: "Internal Server Error."
+    })
   }
 }
 

@@ -5,8 +5,7 @@ import cookieParser from "cookie-parser";
 import routes from "./routes";
 import cors from "cors";
 import { corsOptions } from "./configs/cors";
-import { configPassport } from "./configs/passport";
-import configSession from "./configs/session";
+import connectionRedis from "./configs/connectRedis";
 
 //create instance app
 const app = express()
@@ -26,6 +25,7 @@ app.use(cookieParser());
 
 app.use(routes)
 
+connectionRedis();
 // configPassport();
 
 app.listen(PORT, () => {

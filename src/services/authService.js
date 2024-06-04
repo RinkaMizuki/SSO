@@ -9,6 +9,7 @@ const randomstring = require("randomstring");
 import axios from "axios";
 import { createEmailConfirmToken, createResetPasswordToken, sendMailAsync } from "./mailService";
 import { timeExpires } from "./timeExpires";
+import { redisClient } from "../configs/connectRedis";
 const nodeCache = require("node-cache");
 const otpCache = new nodeCache();
 
@@ -26,6 +27,7 @@ const getUserInfo = async (userId, userService) => {
     throw err;
   }
 }
+
 const postUserInfo = async (data, userService) => {
   try {
     const httpRequest = axios.create({
@@ -77,6 +79,7 @@ const checkEmailExist = async (email) => {
 
 const getListClaim = (user) => {
   return {
+    userId: user.id,
     email: user.email,
     username: user.username,
     role: user.role,
@@ -114,6 +117,15 @@ const checkService = async (serviceName, serviceUrl) => {
     }
   })
   return service;
+}
+
+const setRedisToken = async (token) => {
+  const tokenExpires = jwt.decode(token);
+  if (tokenExpires.exp > Date.now() / 1000) {
+    await redisClient.set(token, `bl_${tokenExpires.email}`, {
+      EXAT: tokenExpires.exp
+    })
+  }
 }
 
 const validateEmailConfirmToken = (token) => {
@@ -253,6 +265,7 @@ const registerUser = async (data) => {
     }
   }
 }
+
 const postLogout = async (rt, at, userId) => {
   try {
     if (!rt && !userId && !at) {
@@ -260,6 +273,9 @@ const postLogout = async (rt, at, userId) => {
         statusCode: 200,
         message: "Logged out successfully."
       }
+    }
+    if (at) {
+      await setRedisToken(at)
     }
     await db.UserToken.destroy({
       where: {
@@ -283,6 +299,7 @@ const postLogout = async (rt, at, userId) => {
     }
   }
 }
+
 const postLogin = async (data) => {
   const t = await sequelize.transaction();
   try {
@@ -301,6 +318,7 @@ const postLogin = async (data) => {
       include: [db.Service, db.UserLogin]
     });
     if (user) {
+      //check if user login with correct infomation
       const isCorrectPassword = checkUserPassword(data.password, user.password);
       if (isCorrectPassword) {
         const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName);
@@ -328,12 +346,38 @@ const postLogin = async (data) => {
         const token = createJWT(payload);
         const refreshToken = createRefreshToken();
 
-        await db.UserToken.create({
-          accessToken: token,
-          refreshToken,
-          expires: !data.remember ? timeExpires.notRemember : timeExpires.remember,
-          userId: user.id
-        }, { transaction: t })
+        //check if user is already logged in other session so we remove it token 
+        const isLoggedIn = await db.UserToken.findOne({
+          where: {
+            userId: user.id
+          }
+        })
+        if (isLoggedIn) {
+          await db.UserToken.update(
+            {
+              accessToken: token,
+              refreshToken,
+              expires: !data.remember ? timeExpires.notRemember : timeExpires.remember,
+              updatedAt: new Date(),
+            },
+            {
+              where: {
+                userId: isLoggedIn.userId,
+              },
+              transaction: t
+            },
+          )
+          await setRedisToken(isLoggedIn.accessToken)
+        }
+        else {
+          await db.UserToken.create({
+            accessToken: token,
+            refreshToken,
+            expires: !data.remember ? timeExpires.notRemember : timeExpires.remember,
+            userId: user.id
+          }, { transaction: t })
+        }
+
         await t.commit();
         return {
           user: userInfoExtend,
