@@ -16,6 +16,8 @@ authRoutes.post('/forgot-password', authController.postForgotPassword)
 
 authRoutes.post('/reset-password', authController.postResetPassword)
 
+authRoutes.post('/change-password', authController.postChangePassword)
+
 authRoutes.get('/refresh-token', authController.getRefreshToken)
 
 authRoutes.post('/verify-token', authController.postVerifyToken)

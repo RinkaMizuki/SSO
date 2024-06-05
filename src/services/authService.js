@@ -454,7 +454,7 @@ const resetPassword = async (data) => {
     const result = validateResetPasswordToken(data.token)
     if (result) {
       const claims = jwt.decode(data.token)
-      const newPassword = bcrypt.hashSync(data.password, salt);
+      const newPassword = hashUserPassword(data.password, salt);
       await db.User.update(
         { password: newPassword },
         {
@@ -472,6 +472,48 @@ const resetPassword = async (data) => {
       statusCode: 400,
       message: "Reset password failed.",
     };
+  } catch (error) {
+    return {
+      message: error.message,
+      statusCode: 500
+    }
+  }
+}
+
+const changePassword = async (data) => {
+  try {
+    const user = await db.User.findOne({
+      where: {
+        id: data.userId
+      }
+    })
+    if (!user) {
+      return {
+        message: 'User not found',
+        statusCode: 404
+      }
+    }
+    const isCorrectPassword = checkUserPassword(data.currentPassword, user.password);
+    if (isCorrectPassword) {
+      await db.User.update(
+        { password: hashUserPassword(data.newPassword, salt) },
+        {
+          where: {
+            id: user.id
+          }
+        }
+      )
+      return {
+        message: 'Update password successfully.',
+        statusCode: 200
+      }
+    }
+    else {
+      return {
+        message: 'Current password incorrect.',
+        statusCode: 409
+      }
+    }
   } catch (error) {
     return {
       message: error.message,
@@ -541,7 +583,7 @@ const enableF2A = async (params) => {
   const data = JSON.stringify({
     "from": {
       "type": "external",
-      "number": "842873030626",
+      "number": process.env.STRINGEE_PHONE,
       "alias": "STRINGEE_NUMBER"
     },
     "to": [
@@ -1298,4 +1340,4 @@ const refreshToken = async (refreshToken, type, remember) => {
   }
 }
 
-export { postLogout, registerUser, postLogin, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo, unlinkGoogle, confirmEmail, forgotPassword, resetPassword, enableF2A, verifyOtp }
+export { postLogout, registerUser, postLogin, refreshToken, loginGoogle, loginFacebook, googleLink, getUserInfo, unlinkGoogle, confirmEmail, forgotPassword, resetPassword, changePassword, enableF2A, verifyOtp }

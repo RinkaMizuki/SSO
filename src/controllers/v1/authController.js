@@ -1,4 +1,4 @@
-import { confirmEmail, enableF2A, forgotPassword, googleLink, loginFacebook, loginGoogle, postLogin, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle, verifyOtp } from "../../services/authService";
+import { changePassword, confirmEmail, enableF2A, forgotPassword, googleLink, loginFacebook, loginGoogle, postLogin, postLogout, refreshToken, registerUser, resetPassword, unlinkGoogle, verifyOtp } from "../../services/authService";
 import { verifyFacebookJWT, verifyGoogleJWT, verifyJWT } from "../../services/jwtService";
 import { cookieExpires } from "../../services/timeExpires";
 
@@ -82,6 +82,18 @@ export const authController = {
     const result = await resetPassword(data);
     res.status(result.statusCode).json(result);
   },
+
+  postChangePassword: async function (req, res, next) {
+    const data = {
+      currentPassword: req.body?.currentPassword,
+      newPassword: req.body?.newPassword,
+      userId: req.body?.userId
+    };
+    console.log(data)
+    const result = await changePassword(data);
+    res.status(result.statusCode).json(result);
+  },
+
   getConfirmEmail: async function (req, res, next) {
     const data = {
       email: req.query?.email,
