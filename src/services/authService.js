@@ -641,6 +641,7 @@ const verifyOtp = async (data, verifyType) => {
   try {
     const otpValidateResult = validateOtp(data);
     if (otpValidateResult.statusCode === 404 || otpValidateResult.statusCode === 401) {
+      await t.commit();
       return otpValidateResult;
     }
 
@@ -695,6 +696,7 @@ const verifyOtp = async (data, verifyType) => {
         include: [db.Service, db.UserLogin]
       })
       if (!user) {
+        await t.commit();
         return {
           statusCode: 404,
           message: "User not found."
