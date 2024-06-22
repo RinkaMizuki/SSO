@@ -63,14 +63,14 @@ const verifyFacebookJWT = (fbToken) => {
 
 const verifyGoogleJWT = async (ggToken) => {
     try {
+        const client = new OAuth2Client();
         const certs = JSON.parse(
             fs.readFileSync("./././google-cerfiticates.json")
         );
-        const client = new OAuth2Client();
         await client.verifySignedJwtWithCertsAsync(ggToken, certs);
         // await client.verifyIdToken({
-        //   idToken: ggToken,
-        //   audience: process.env.CLIENT_ID,
+        //     idToken: ggToken,
+        //     audience: process.env.CLIENT_ID,
         // });
         return {
             statusCode: 200,
@@ -78,6 +78,7 @@ const verifyGoogleJWT = async (ggToken) => {
             token: ggToken,
         };
     } catch (error) {
+        console.log(error);
         return {
             statusCode: 401,
             message: error.message,

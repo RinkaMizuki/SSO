@@ -1110,7 +1110,10 @@ const loginFacebook = async (data) => {
                     user.id,
                     data.serviceName
                 );
-                const accessToken = createFacebookJWT(userProfile);
+                const accessToken = createFacebookJWT({
+                    ...userProfile,
+                    userId: userLogins.userId,
+                });
                 const refreshToken = createRefreshToken();
                 user.UserLogins.forEach((ul) => {
                     userInfoExtend.userLogins.push({
