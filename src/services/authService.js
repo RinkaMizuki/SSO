@@ -2,7 +2,7 @@ import db, { sequelize } from "../models/index";
 import bcrypt from "bcryptjs";
 require("dotenv").config();
 import { Op } from "sequelize";
-import { createFacebookJWT, createJWT, createRefreshToken } from "./jwtService";
+import { createJWT, createRefreshToken } from "./jwtService";
 const uuid = require("uuid");
 const jwt = require("jsonwebtoken");
 const randomstring = require("randomstring");
@@ -102,8 +102,8 @@ const getListClaim = (user) => {
         email: user.email,
         username: user.username,
         role: user.role,
-        serviceName: user.Service.serviceName,
-        serviceUrl: user.Service.serviceUrl,
+        serviceName: user?.Service?.serviceName || user.serviceName,
+        serviceUrl: user?.Service?.serviceUrl || user.serviceUrl,
     };
 };
 
@@ -807,8 +807,7 @@ const getUserGoogleInfo = async (token_type, access_token) => {
     });
     return res;
 };
-
-const getTokenGoogle = async (code) => {
+const getGoogleProfile = async (code) => {
     const {
         data: {
             access_token,
@@ -844,7 +843,8 @@ const getTokenGoogle = async (code) => {
 const loginGoogle = async (params) => {
     const t = await sequelize.transaction();
     try {
-        const data = await getTokenGoogle(params.code);
+        const data = await getGoogleProfile(params.code);
+
         const userLink = await db.User.findOne({
             where: {
                 email: data.email,
@@ -855,28 +855,20 @@ const loginGoogle = async (params) => {
                 providerKey: data.providerId,
             },
         });
+
         if (userLogins != null) {
             const user = await db.User.findOne({
                 where: {
                     id: userLogins.userId,
                 },
-                include: [db.UserLogin],
+                include: [db.Service, db.UserLogin],
             });
-
-            await db.UserToken.create(
-                {
-                    accessToken: data.accessToken,
-                    refreshToken: data.refreshToken,
-                    expires: timeExpires.notRemember,
-                    userId: user.id,
-                },
-                { transaction: t }
-            );
 
             const userInfoExtend = await getUserInfo(
                 user.id,
                 params.serviceName
             );
+
             user.UserLogins.forEach((ul) => {
                 userInfoExtend.userLogins.push({
                     loginProvider: ul.loginProvider,
@@ -888,13 +880,28 @@ const loginGoogle = async (params) => {
                     isUnlink: ul.isUnlink,
                 });
             });
+
+            const payload = getListClaim(user);
+            const accessToken = createJWT(payload);
+            const refreshToken = createRefreshToken();
+
+            await db.UserToken.create(
+                {
+                    accessToken,
+                    refreshToken,
+                    expires: timeExpires.notRemember,
+                    userId: user.id,
+                },
+                { transaction: t }
+            );
             await t.commit();
+
             return {
                 statusCode: 200,
                 message: "Login successfully.",
                 user: userInfoExtend,
-                accessToken: data.accessToken,
-                refreshToken: data.refreshToken,
+                accessToken,
+                refreshToken,
             };
         }
         if (userLink && !userLogins) {
@@ -912,22 +919,14 @@ const loginGoogle = async (params) => {
                 where: {
                     id: newProvider.userId,
                 },
-                include: [db.UserLogin],
+                include: [db.Service, db.UserLogin],
             });
-            await db.UserToken.create(
-                {
-                    accessToken: data.accessToken,
-                    refreshToken: data.refreshToken,
-                    expires: timeExpires.notRemember,
-                    userId: user.id,
-                },
-                { transaction: t }
-            );
 
             const userInfoExtend = await getUserInfo(
                 user.id,
                 params.serviceName
             );
+
             user.UserLogins.forEach((ul) => {
                 userInfoExtend.userLogins.push({
                     loginProvider: ul.loginProvider,
@@ -939,13 +938,29 @@ const loginGoogle = async (params) => {
                     isUnlink: ul.isUnlink,
                 });
             });
+
+            const payload = getListClaim(user);
+            const accessToken = createJWT(payload);
+            const refreshToken = createRefreshToken();
+
+            await db.UserToken.create(
+                {
+                    accessToken,
+                    refreshToken,
+                    expires: timeExpires.notRemember,
+                    userId: user.id,
+                },
+                { transaction: t }
+            );
+
             await t.commit();
+
             return {
                 statusCode: 200,
                 message: "Login successfully.",
                 user: userInfoExtend,
-                accessToken: data.accessToken,
-                refreshToken: data.refreshToken,
+                accessToken,
+                refreshToken,
             };
         } else {
             const userId = uuid.v4();
@@ -958,9 +973,9 @@ const loginGoogle = async (params) => {
                 ModifiedAt: new Date(),
                 EmailConfirm: true,
                 Url: data.picture,
-                Avatar: "Provider Avatar",
+                Avatar: "Google Avatar",
             };
-            const response = await postUserInfo(
+            const newUser = await postUserInfo(
                 newUserWithProvider,
                 params.serviceName
             );
@@ -995,18 +1010,8 @@ const loginGoogle = async (params) => {
                 },
             });
 
-            await db.UserToken.create(
-                {
-                    accessToken: data.accessToken,
-                    refreshToken: data.refreshToken,
-                    expires: timeExpires.notRemember,
-                    userId: userId,
-                },
-                { transaction: t }
-            );
-
             providers.forEach((ul) => {
-                response.userLogins.push({
+                newUser.userLogins.push({
                     loginProvider: ul.loginProvider,
                     providerKey: ul.providerKey,
                     providerDisplayName: ul.providerDisplayName,
@@ -1016,13 +1021,31 @@ const loginGoogle = async (params) => {
                     isUnlink: ul.isUnlink,
                 });
             });
+
+            const payload = getListClaim({
+                ...newUser,
+                serviceName: service.serviceName,
+                serviceUrl: service.serviceUrl,
+            });
+            const accessToken = createJWT(payload);
+            const refreshToken = createRefreshToken();
+
+            await db.UserToken.create(
+                {
+                    accessToken,
+                    refreshToken,
+                    expires: timeExpires.notRemember,
+                    userId: newUser.id,
+                },
+                { transaction: t }
+            );
             await t.commit();
             return {
                 statusCode: 200,
                 message: "Login successfully.",
-                user: response,
-                accessToken: data.accessToken,
-                refreshToken: data.refreshToken,
+                user: newUser,
+                accessToken: accessToken,
+                refreshToken: refreshToken,
             };
         }
     } catch (error) {
@@ -1103,18 +1126,14 @@ const loginFacebook = async (data) => {
                     where: {
                         id: userLogins.userId,
                     },
-                    include: [db.UserLogin],
+                    include: [db.Service, db.UserLogin],
                 });
                 //truyen vao service
                 const userInfoExtend = await getUserInfo(
                     user.id,
                     data.serviceName
                 );
-                const accessToken = createFacebookJWT({
-                    ...userProfile,
-                    userId: userLogins.userId,
-                });
-                const refreshToken = createRefreshToken();
+
                 user.UserLogins.forEach((ul) => {
                     userInfoExtend.userLogins.push({
                         loginProvider: ul.loginProvider,
@@ -1126,6 +1145,11 @@ const loginFacebook = async (data) => {
                         isUnlink: ul.isUnlink,
                     });
                 });
+
+                const payload = getListClaim(user);
+                const accessToken = createJWT(payload);
+                const refreshToken = createRefreshToken();
+
                 await db.UserToken.create(
                     {
                         accessToken,
@@ -1170,7 +1194,7 @@ const loginFacebook = async (data) => {
                     Url: userProfile.picture.data.url,
                     Avatar: "Provider Avatar",
                 };
-                const response = await postUserInfo(
+                const newUser = await postUserInfo(
                     newUserWithProvider,
                     data.serviceName
                 );
@@ -1188,8 +1212,7 @@ const loginFacebook = async (data) => {
                         serviceName: data.serviceName,
                     },
                 });
-                const accessToken = createFacebookJWT(userProfile);
-                const refreshToken = createRefreshToken();
+
                 await db.User.create(
                     {
                         id: userId,
@@ -1200,14 +1223,16 @@ const loginFacebook = async (data) => {
                     },
                     { transaction: t }
                 );
+
                 await db.UserLogin.create(newProvider, { transaction: t });
                 const providers = await db.UserLogin.findAll({
                     where: {
                         userId: userId,
                     },
                 });
+
                 providers.forEach((ul) => {
-                    response.userLogins.push({
+                    newUser.userLogins.push({
                         loginProvider: ul.loginProvider,
                         providerKey: ul.providerKey,
                         providerDisplayName: ul.providerDisplayName,
@@ -1217,6 +1242,15 @@ const loginFacebook = async (data) => {
                         isUnlink: ul.isUnlink,
                     });
                 });
+
+                const payload = getListClaim({
+                    ...newUser,
+                    serviceName: service.serviceName,
+                    serviceUrl: service.serviceUrl,
+                });
+
+                const accessToken = createJWT(payload);
+                const refreshToken = createRefreshToken();
 
                 await db.UserToken.create(
                     {
@@ -1290,7 +1324,7 @@ const loginFacebook = async (data) => {
 
 const googleLink = async (userId, params) => {
     try {
-        const provider = await getTokenGoogle(params.code);
+        const provider = await getGoogleProfile(params.code);
         const providerExternalLink = await db.UserLogin.findOne({
             where: {
                 providerKey: provider.providerId,
@@ -1350,7 +1384,7 @@ const googleLink = async (userId, params) => {
     }
 };
 
-const refreshToken = async (refreshToken, type, remember) => {
+const refreshToken = async (refreshToken, remember) => {
     const t = await sequelize.transaction();
     try {
         if (!refreshToken) {
@@ -1392,7 +1426,7 @@ const refreshToken = async (refreshToken, type, remember) => {
             where: {
                 id: currRfToken.userId,
             },
-            include: db.Service,
+            include: [db.Service],
         });
 
         const userInfoExtend = await getUserInfo(
@@ -1409,43 +1443,16 @@ const refreshToken = async (refreshToken, type, remember) => {
             };
         }
 
-        let expired;
-        let newAccessToken;
-        let newRefreshToken;
         const payload = getListClaim(user);
-        if (type === "facebook") {
-            expired = timeExpires.notRemember;
-            newAccessToken = createFacebookJWT(payload);
-            newRefreshToken = createRefreshToken();
-        } else if (type === "default") {
-            expired =
-                remember === "false"
-                    ? timeExpires.notRemember
-                    : timeExpires.remember;
-            newAccessToken = createJWT(payload);
-            newRefreshToken = createRefreshToken();
-        } else {
-            const {
-                data: { id_token, access_token },
-            } = await axios.post(
-                `${process.env.GOOGLE_TOKEN_URI}/token`,
-                null,
-                {
-                    params: {
-                        client_id: process.env.CLIENT_ID,
-                        client_secret: process.env.CLIENT_SECRET,
-                        grant_type: "refresh_token",
-                        refresh_token: currRfToken.refreshToken,
-                        scope: "openid profile email",
-                    },
-                }
-            );
 
-            expired = timeExpires.notRemember;
-            newAccessToken = id_token;
-            newRefreshToken = currRfToken.refreshToken;
-        }
-        console.log("new refresh_token", newRefreshToken);
+        const expired =
+            remember === "false"
+                ? timeExpires.notRemember
+                : timeExpires.remember;
+
+        const newAccessToken = createJWT(payload);
+        const newRefreshToken = createRefreshToken();
+
         await db.UserToken.update(
             {
                 accessToken: newAccessToken,

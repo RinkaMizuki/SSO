@@ -15,8 +15,8 @@ import {
     verifyOtp,
 } from "../../services/authService";
 import {
-    verifyFacebookJWT,
-    verifyGoogleJWT,
+    //verifyFacebookJWT,
+    //verifyGoogleJWT,
     verifyJWT,
 } from "../../services/jwtService";
 import { cookieExpires } from "../../services/timeExpires";
@@ -225,33 +225,27 @@ export const authController = {
         const result = verifyJWT(accessToken);
         res.status(result.statusCode).json(result);
     },
-    postVerifyFacebookToken: async function (req, res, next) {
-        let fbAccessToken = req.header("authorization")?.split(" ")[1];
-        if (!fbAccessToken) fbAccessToken = req.cookies?.accessToken;
-        const result = verifyFacebookJWT(fbAccessToken);
-        res.status(result.statusCode).json(result);
-    },
-    postVerifyGoogleToken: async function (req, res, next) {
-        let ggAccessToken = req.header("authorization")?.split(" ")[1];
-        if (!ggAccessToken) ggAccessToken = req.cookies?.accessToken;
-        const result = await verifyGoogleJWT(ggAccessToken);
-        res.status(result?.statusCode).json(result);
-    },
+    // postVerifyFacebookToken: async function (req, res, next) {
+    //     let fbAccessToken = req.header("authorization")?.split(" ")[1];
+    //     if (!fbAccessToken) fbAccessToken = req.cookies?.accessToken;
+    //     const result = verifyFacebookJWT(fbAccessToken);
+    //     res.status(result.statusCode).json(result);
+    // },
+    // postVerifyGoogleToken: async function (req, res, next) {
+    //     let ggAccessToken = req.header("authorization")?.split(" ")[1];
+    //     if (!ggAccessToken) ggAccessToken = req.cookies?.accessToken;
+    //     const result = await verifyGoogleJWT(ggAccessToken);
+    //     res.status(result?.statusCode).json(result);
+    // },
     getRefreshToken: async function (req, res, next) {
         const rfToken = req.cookies?.refreshToken;
         const remember = req.query?.remember;
-        const type = req.query?.type;
-        const result = await refreshToken(rfToken, type, remember);
+        const result = await refreshToken(rfToken, remember);
         if (result.statusCode === 200) {
-            let rtExpiresTime;
-            if (type === "default") {
-                rtExpiresTime =
-                    remember === "false"
-                        ? cookieExpires.rfTokenNotRemember
-                        : cookieExpires.rfTokenRemember;
-            } else {
-                rtExpiresTime = cookieExpires.rfTokenNotRemember;
-            }
+            const rtExpiresTime =
+                remember === "false"
+                    ? cookieExpires.rfTokenNotRemember
+                    : cookieExpires.rfTokenRemember;
             setCookie(res, result, cookieExpires.acToken, rtExpiresTime);
         }
         delete result["user"];
