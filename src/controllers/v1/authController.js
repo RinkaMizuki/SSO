@@ -21,14 +21,14 @@ import {
 } from "../../services/jwtService";
 import { cookieExpires } from "../../services/timeExpires";
 
-function setCookie(res, data, cookieATage, cookieRTage) {
+function setCookie(res, data, cookieRTage) {
     res.cookie("refreshToken", data.refreshToken, {
         maxAge: cookieRTage,
         httpOnly: true,
     });
     if (data.user?.role !== "admin") {
         res.cookie("accessToken", data.accessToken, {
-            maxAge: cookieATage,
+            maxAge: cookieRTage,
             //httpOnly: true,
         });
         delete data["accessToken"];
@@ -61,7 +61,7 @@ export const authController = {
             const rtExpiresTime = !loginData.remember
                 ? cookieExpires.rfTokenNotRemember
                 : cookieExpires.rfTokenRemember;
-            setCookie(res, result, cookieExpires.acToken, rtExpiresTime);
+            setCookie(res, result, rtExpiresTime);
         }
         res.status(result.statusCode).json(result);
     },
@@ -177,12 +177,7 @@ export const authController = {
         const data = req.body;
         const result = await loginGoogle(data);
         if (result.statusCode === 200) {
-            setCookie(
-                res,
-                result,
-                cookieExpires.acToken,
-                cookieExpires.rfTokenNotRemember
-            );
+            setCookie(res, result, cookieExpires.rfTokenNotRemember);
         }
         res.status(result.statusCode).json(result);
     },
@@ -195,12 +190,7 @@ export const authController = {
         };
         const data = await loginFacebook(params);
         if (data.statusCode === 200 && params.type === "login") {
-            setCookie(
-                res,
-                data,
-                cookieExpires.acToken,
-                cookieExpires.rfTokenNotRemember
-            );
+            setCookie(res, data, cookieExpires.rfTokenNotRemember);
         }
         res.status(data.statusCode).json(data);
     },
@@ -246,7 +236,7 @@ export const authController = {
                 remember === "false"
                     ? cookieExpires.rfTokenNotRemember
                     : cookieExpires.rfTokenRemember;
-            setCookie(res, result, cookieExpires.acToken, rtExpiresTime);
+            setCookie(res, result, rtExpiresTime);
         }
         delete result["user"];
         res.status(result.statusCode).json(result);

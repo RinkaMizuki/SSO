@@ -349,7 +349,7 @@ const postLogin = async (data) => {
             include: [db.Service, db.UserLogin],
         });
         if (user) {
-            //check if user login with correct infomation
+            //check if user login with correct information
             const isCorrectPassword = checkUserPassword(
                 data.password,
                 user.password
@@ -381,7 +381,7 @@ const postLogin = async (data) => {
                 });
                 userInfoExtend.f2a = user.f2a;
                 const payload = getListClaim(user);
-                const token = createJWT(payload);
+                const accessToken = createJWT(payload);
                 const refreshToken = createRefreshToken();
 
                 //check if user is already logged in other session so we remove it token
@@ -391,9 +391,14 @@ const postLogin = async (data) => {
                     },
                 });
                 if (isLoggedIn) {
+                    await setRedisToken(isLoggedIn.accessToken);
+                    console.log("send event");
+                    _io.of("/api/v1").emit("receiveLoginDetected", {
+                        token: isLoggedIn.accessToken,
+                    });
                     await db.UserToken.update(
                         {
-                            accessToken: token,
+                            accessToken,
                             refreshToken,
                             expires: !data.remember
                                 ? timeExpires.notRemember
@@ -407,11 +412,10 @@ const postLogin = async (data) => {
                             transaction: t,
                         }
                     );
-                    await setRedisToken(isLoggedIn.accessToken);
                 } else {
                     await db.UserToken.create(
                         {
-                            accessToken: token,
+                            accessToken,
                             refreshToken,
                             expires: !data.remember
                                 ? timeExpires.notRemember
@@ -425,7 +429,7 @@ const postLogin = async (data) => {
                 await t.commit();
                 return {
                     user: userInfoExtend,
-                    accessToken: token,
+                    accessToken,
                     refreshToken,
                     message: "Login successfully.",
                     statusCode: 200,
@@ -440,7 +444,7 @@ const postLogin = async (data) => {
         } else {
             await t.commit();
             return {
-                message: "Email/Username incorrect or unconfimred.",
+                message: "Email/Username incorrect or unconfirmed.",
                 statusCode: 404,
             };
         }
@@ -807,6 +811,7 @@ const getUserGoogleInfo = async (token_type, access_token) => {
     });
     return res;
 };
+
 const getGoogleProfile = async (code) => {
     const {
         data: {
@@ -1402,20 +1407,17 @@ const refreshToken = async (refreshToken, remember) => {
         });
         if (!currRfToken || currRfToken.expires.getTime() <= Date.now()) {
             if (currRfToken) {
-                console.log("RefreshToken was expired");
+                console.log("RefreshToken was expired.");
                 await db.UserToken.destroy({
                     where: {
                         refreshToken: currRfToken.refreshToken,
                     },
+                    force: true,
                     transaction: t,
                 });
             }
             await t.commit();
-            console.log(
-                "Not found RefreshToken in DB",
-                refreshToken,
-                currRfToken
-            );
+            console.log("Not found RefreshToken in DB", currRfToken);
             return {
                 message: "Refresh token failed",
                 statusCode: 403,
