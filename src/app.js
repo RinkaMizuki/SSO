@@ -9,16 +9,26 @@ import connectionRedis from "./configs/connectRedis";
 import http from "http";
 import socketIo from "socket.io";
 import SocketService from "./services/socketService";
+import startUserConsumer from "./services/userConsumerService";
 
 //create instance app
 const app = express();
 const server = http.createServer(app);
 //config socket io
 global._io = socketIo(server, {
-    cors: corsOptions,
-    path: "/authhub/socket.io",
+  cors: corsOptions,
+  path: "/authhub/socket.io",
 });
 global._io.of("/api/v1").on("connection", SocketService.connection);
+
+//config rabbitmq consumer
+startUserConsumer()
+  .then(() => {
+    console.log(">>> Consumer started and listening for messages...");
+  })
+  .catch((err) => {
+    console.error("Error starting consumer:", err);
+  });
 
 const PORT = process.env.PORT || 8081;
 //config cors
@@ -40,5 +50,5 @@ connectionRedis();
 // configPassport();
 
 server.listen(PORT, () => {
-    console.log(">>> SSO Backend is running on the port = " + PORT);
+  console.log(">>> SSO Backend is running on the port = " + PORT);
 });

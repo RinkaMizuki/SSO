@@ -108,7 +108,7 @@ const checkUsernameExist = async (username) => {
   return false;
 };
 
-const hashUserPassword = (password) => {
+export const hashUserPassword = (password) => {
   const hashPassword = bcrypt.hashSync(password, salt);
   return hashPassword;
 };
@@ -117,7 +117,7 @@ const checkUserPassword = (password, passwordHash) => {
   return bcrypt.compareSync(password, passwordHash);
 };
 
-const checkService = async (serviceName, serviceUrl) => {
+export const checkService = async (serviceName, serviceUrl) => {
   const service = await db.Service.findOne({
     where: {
       [Op.or]: [{ serviceName }, { serviceUrl }],
@@ -275,7 +275,7 @@ const registerUser = async (data) => {
     );
     await t.commit();
     return {
-      message: "Registed successfully.",
+      message: "Register successfully.",
       statusCode: 201,
     };
   } catch (error) {
@@ -388,8 +388,8 @@ const postLogin = async (data) => {
               accessToken,
               refreshToken,
               expires: !data.remember
-                ? timeExpires.notRemember
-                : timeExpires.remember,
+                ? timeExpires().notRemember
+                : timeExpires().remember,
               updatedAt: new Date(),
             },
             {
@@ -405,8 +405,8 @@ const postLogin = async (data) => {
               accessToken,
               refreshToken,
               expires: !data.remember
-                ? timeExpires.notRemember
-                : timeExpires.remember,
+                ? timeExpires().notRemember
+                : timeExpires().remember,
               userId: user.id,
             },
             { transaction: t }
@@ -878,7 +878,7 @@ const loginGoogle = async (params) => {
         {
           accessToken,
           refreshToken,
-          expires: timeExpires.notRemember,
+          expires: timeExpires().notRemember,
           userId: user.id,
         },
         { transaction: t }
@@ -933,7 +933,7 @@ const loginGoogle = async (params) => {
         {
           accessToken,
           refreshToken,
-          expires: timeExpires.notRemember,
+          expires: timeExpires().notRemember,
           userId: user.id,
         },
         { transaction: t }
@@ -1020,7 +1020,7 @@ const loginGoogle = async (params) => {
         {
           accessToken,
           refreshToken,
-          expires: timeExpires.notRemember,
+          expires: timeExpires().notRemember,
           userId: newUser.id,
         },
         { transaction: t }
@@ -1134,7 +1134,7 @@ const loginFacebook = async (data) => {
           {
             accessToken,
             refreshToken,
-            expires: timeExpires.notRemember,
+            expires: timeExpires().notRemember,
             userId: user.id,
           },
           { transaction: t }
@@ -1236,7 +1236,7 @@ const loginFacebook = async (data) => {
           {
             accessToken,
             refreshToken,
-            expires: timeExpires.notRemember,
+            expires: timeExpires().notRemember,
             userId: userId,
           },
           { transaction: t }
@@ -1419,7 +1419,7 @@ const refreshToken = async (refreshToken, remember) => {
     const payload = getListClaim(user);
 
     const expired =
-      remember === "false" ? timeExpires.notRemember : timeExpires.remember;
+      remember === false ? timeExpires().notRemember : timeExpires().remember;
 
     const newAccessToken = createJWT(payload);
     const newRefreshToken = createRefreshToken();

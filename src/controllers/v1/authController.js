@@ -14,11 +14,7 @@ import {
   unlinkGoogle,
   verifyOtp,
 } from "../../services/authService";
-import {
-  //verifyFacebookJWT,
-  //verifyGoogleJWT,
-  verifyJWT,
-} from "../../services/jwtService";
+import { verifyJWT } from "../../services/jwtService";
 import { cookieExpires } from "../../services/timeExpires";
 
 function setCookie(res, data, cookieRTage) {
@@ -66,13 +62,12 @@ export const authController = {
     res.status(result.statusCode).json(result);
   },
   postRegister: async function (req, res, next) {
-    const origin = req.headers.origin; // hostname = 'localhost:5000'
     const data = {
       email: req.body.email,
       username: req.body.username,
       password: req.body.password,
-      serviceName: req.body.service,
-      serviceUrl: origin + "/",
+      serviceName: req.body.serviceName,
+      serviceUrl: req.body.serviceUrl,
     };
     const result = await registerUser(data);
     return res.status(result.statusCode).json(result);
@@ -215,21 +210,9 @@ export const authController = {
     const result = verifyJWT(accessToken);
     res.status(result.statusCode).json(result);
   },
-  // postVerifyFacebookToken: async function (req, res, next) {
-  //     let fbAccessToken = req.header("authorization")?.split(" ")[1];
-  //     if (!fbAccessToken) fbAccessToken = req.cookies?.accessToken;
-  //     const result = verifyFacebookJWT(fbAccessToken);
-  //     res.status(result.statusCode).json(result);
-  // },
-  // postVerifyGoogleToken: async function (req, res, next) {
-  //     let ggAccessToken = req.header("authorization")?.split(" ")[1];
-  //     if (!ggAccessToken) ggAccessToken = req.cookies?.accessToken;
-  //     const result = await verifyGoogleJWT(ggAccessToken);
-  //     res.status(result?.statusCode).json(result);
-  // },
   getRefreshToken: async function (req, res, next) {
     const rfToken = req.cookies?.refreshToken;
-    const remember = req.query?.remember;
+    const remember = !!req.query?.remember;
     const result = await refreshToken(rfToken, remember);
     if (result.statusCode === 200) {
       const rtExpiresTime =

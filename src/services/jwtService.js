@@ -3,32 +3,32 @@ const uuid = require("uuid");
 //const { OAuth2Client } = require("google-auth-library");
 
 const createJWT = (payload) => {
-    return jwt.sign(payload, process.env.SECRET, {
-        algorithm: "HS256",
-        expiresIn: +process.env.EXPIRES,
-        issuer: process.env.ISSUER,
-        audience: process.env.AUDIENCE,
-    });
+  return jwt.sign(payload, process.env.SECRET, {
+    algorithm: "HS256",
+    expiresIn: +process.env.EXPIRES,
+    issuer: process.env.ISSUER,
+    audience: process.env.AUDIENCE,
+  });
 };
 
 const createRefreshToken = () => {
-    return uuid.v4();
+  return uuid.v4();
 };
 
 const verifyJWT = (token) => {
-    const secret = process.env.SECRET;
-    try {
-        jwt.verify(token, secret, {
-            issuer: process.env.ISSUER,
-            audience: process.env.AUDIENCE,
-        });
-        return { statusCode: 200, message: "Verify successfully.", token };
-    } catch (error) {
-        return {
-            statusCode: 401,
-            message: error.message,
-        };
-    }
+  const secret = process.env.SECRET;
+  try {
+    jwt.verify(token, secret, {
+      issuer: process.env.ISSUER,
+      audience: process.env.AUDIENCE,
+    });
+    return { statusCode: 200, message: "Verify successfully.", token };
+  } catch (error) {
+    return {
+      statusCode: 401,
+      message: error.message,
+    };
+  }
 };
 
 // const createFacebookJWT = (payload) => {
@@ -81,10 +81,10 @@ const verifyJWT = (token) => {
 // };
 
 export {
-    createJWT,
-    verifyJWT,
-    createRefreshToken,
-    //verifyGoogleJWT,
-    //verifyFacebookJWT,
-    //createFacebookJWT,
+  createJWT,
+  verifyJWT,
+  createRefreshToken,
+  //verifyGoogleJWT,
+  //verifyFacebookJWT,
+  //createFacebookJWT,
 };
