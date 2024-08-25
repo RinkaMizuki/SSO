@@ -51,6 +51,7 @@ export const authController = {
       valueLogin: req.body.username,
       password: req.body.password,
       remember: req.body.remember,
+      origin: req.get("origin"),
     };
     const result = await postLogin(loginData);
     if (result.statusCode === 200) {
@@ -137,7 +138,8 @@ export const authController = {
   postVerifyOtp: async function (req, res, next) {
     const data = req.body;
     const type = req.query?.type;
-    const result = await verifyOtp(data, type);
+    const token = req.header("authorization");
+    const result = await verifyOtp(data, type, token);
     res.status(result.statusCode).json(result);
   },
   postLogout: async function (req, res, next) {
@@ -182,7 +184,9 @@ export const authController = {
       userId: req.query?.userId,
       facebookAccessToken: req.query.facebookAccessToken,
       serviceName: req.query.serviceName,
+      token: req.header("authorization"),
     };
+    console.log(params);
     const data = await loginFacebook(params);
     if (data.statusCode === 200 && params.type === "login") {
       setCookie(res, data, cookieExpires.rfTokenNotRemember);
@@ -192,7 +196,8 @@ export const authController = {
   postGoogleLink: async function (req, res, next) {
     const userId = req.query.userId;
     const data = req.body;
-    const result = await googleLink(userId, data);
+    const token = req.header("authorization");
+    const result = await googleLink(userId, data, token);
     res.status(result.statusCode).json(result);
   },
 
@@ -200,6 +205,7 @@ export const authController = {
     const data = {
       userId: req.query?.userId,
       providerId: req.query?.providerId,
+      token: req.header("authorization"),
     };
     const result = await unlinkGoogle(data);
     res.status(result.statusCode).json(result);

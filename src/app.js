@@ -9,7 +9,9 @@ import connectionRedis from "./configs/connectRedis";
 import http from "http";
 import socketIo from "socket.io";
 import SocketService from "./services/socketService";
-import startUserConsumer from "./services/userConsumerService";
+import connectRabbitMQ from "./configs/connectRabbitMQ";
+import StartUserProducer from "./services/userProducerService";
+import StartUserConsumer from "./services/userConsumerService";
 
 //create instance app
 const app = express();
@@ -22,13 +24,10 @@ global._io = socketIo(server, {
 global._io.of("/api/v1").on("connection", SocketService.connection);
 
 //config rabbitmq consumer
-startUserConsumer()
-  .then(() => {
-    console.log(">>> Consumer started and listening for messages...");
-  })
-  .catch((err) => {
-    console.error("Error starting consumer:", err);
-  });
+connectRabbitMQ().then((connection) => {
+  new StartUserConsumer(connection);
+  new StartUserProducer(connection);
+});
 
 const PORT = process.env.PORT || 8081;
 //config cors

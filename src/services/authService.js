@@ -14,16 +14,20 @@ import {
 } from "./mailService";
 import { timeExpires } from "./timeExpires";
 import { redisClient } from "../configs/connectRedis";
+import StartUserProducer from "./userProducerService";
 const nodeCache = require("node-cache");
 const otpCache = new nodeCache();
 
 const salt = bcrypt.genSaltSync(10);
 
-const getUserInfo = async (userId, userService) => {
+const getUserInfo = async (userId, userService, token) => {
   try {
     const httpRequest = axios.create({
       baseURL:
-        userService === "Ecommerce" ? process.env.ECOMMERCE_BASE_URL : "",
+        userService === "Ecommerce" ? process.env.ADMIN_ECOMMERCE_BASE_URL : "",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     });
     const response = await httpRequest.get("api/v1/Admin/users/" + userId);
     return response.data;
@@ -37,7 +41,7 @@ const postUserInfo = async (data, userService) => {
   try {
     const httpRequest = axios.create({
       baseURL:
-        userService === "Ecommerce" ? process.env.ECOMMERCE_BASE_URL : "", //cần truyền serviceName để call api của service đó
+        userService === "Ecommerce" ? process.env.ADMIN_ECOMMERCE_BASE_URL : "", //cần truyền serviceName để call api của service đó
     });
     const response = await httpRequest.post("api/v1/Admin/users/post", data);
     return response.data;
@@ -51,7 +55,7 @@ const updateUserConfirm = async (userId, userService) => {
   try {
     const httpRequest = axios.create({
       baseURL:
-        userService === "Ecommerce" ? process.env.ECOMMERCE_BASE_URL : "", //cần truyền serviceName để call api của service đó
+        userService === "Ecommerce" ? process.env.ADMIN_ECOMMERCE_BASE_URL : "", //cần truyền serviceName để call api của service đó
     });
     const response = await httpRequest.get(
       `api/v1/Admin/users/confirm-email/${userId}`
@@ -249,23 +253,24 @@ const registerUser = async (data) => {
       role: "member",
       serviceId: newService.id,
     };
+
     await db.User.create(newUser, {
       transaction: t,
     });
-    await postUserInfo(
-      {
-        UserId: newUser.id,
-        UserName: data.username,
-        Email: data.email,
-        BirthDate: new Date(),
-        CreatedAt: new Date(),
-        ModifiedAt: new Date(),
-        EmailConfirm: false,
-        Url: "",
-        Avatar: "",
-      },
-      data.serviceName
-    );
+
+    StartUserProducer.publishUserRegister({
+      UserId: newUser.id,
+      UserName: data.username,
+      Email: data.email,
+      BirthDate: new Date(),
+      CreatedAt: new Date(),
+      ModifiedAt: new Date(),
+      EmailConfirm: false,
+      Url: "",
+      MessageType: "registerUser",
+      Avatar: "",
+    });
+
     const token = createEmailConfirmToken(newUser, "1h");
     const message = `${data.serviceUrl}confirm-email?email=${newUser.email}&token=${token}&serviceName=${data.serviceName}`;
     await sendMailAsync(
@@ -282,7 +287,7 @@ const registerUser = async (data) => {
     await t.rollback();
     console.log(error);
     return {
-      message: "Error creating",
+      message: "Error while creating user account",
       statusCode: 500,
     };
   }
@@ -343,10 +348,26 @@ const postLogin = async (data) => {
       //check if user login with correct information
       const isCorrectPassword = checkUserPassword(data.password, user.password);
       if (isCorrectPassword) {
+        if (
+          user.role === "admin" &&
+          data.origin + "/" === process.env.CLIENT_ECOMMERCE_BASE_URL
+        ) {
+          return {
+            message: "Email/Username incorrect or unconfirmed.",
+            statusCode: 400,
+          };
+        }
+
+        const payload = getListClaim(user);
+        const accessToken = createJWT(payload);
+        const refreshToken = createRefreshToken();
+
         const userInfoExtend = await getUserInfo(
           user.id,
-          user.Service.serviceName
+          user.Service.serviceName,
+          accessToken
         );
+
         if (userInfoExtend.isActive) {
           await t.commit();
           return {
@@ -368,9 +389,6 @@ const postLogin = async (data) => {
           });
         });
         userInfoExtend.f2a = user.f2a;
-        const payload = getListClaim(user);
-        const accessToken = createJWT(payload);
-        const refreshToken = createRefreshToken();
 
         //check if user is already logged in other session so we remove it token
         const isLoggedIn = await db.UserToken.findOne({
@@ -681,7 +699,7 @@ const enableF2A = async (params) => {
     });
 };
 
-const verifyOtp = async (data, verifyType) => {
+const verifyOtp = async (data, verifyType, token) => {
   const t = await sequelize.transaction();
   try {
     const otpValidateResult = validateOtp(data);
@@ -720,7 +738,8 @@ const verifyOtp = async (data, verifyType) => {
       );
       const userInfoExtend = await getUserInfo(
         data?.userId,
-        user?.Service.serviceName
+        user?.Service.serviceName,
+        token
       );
       user.UserLogins.forEach((ul) => {
         userInfoExtend.userLogins.push({
@@ -758,7 +777,8 @@ const verifyOtp = async (data, verifyType) => {
       }
       const userInfoExtend = await getUserInfo(
         user?.id,
-        user?.Service.serviceName
+        user?.Service.serviceName,
+        token
       );
       user.UserLogins.forEach((ul) => {
         userInfoExtend.userLogins.push({
@@ -837,11 +857,6 @@ const loginGoogle = async (params) => {
   try {
     const data = await getGoogleProfile(params.code);
 
-    const userLink = await db.User.findOne({
-      where: {
-        email: data.email,
-      },
-    });
     const userLogins = await db.UserLogin.findOne({
       where: {
         providerKey: data.providerId,
@@ -856,7 +871,15 @@ const loginGoogle = async (params) => {
         include: [db.Service, db.UserLogin],
       });
 
-      const userInfoExtend = await getUserInfo(user.id, params.serviceName);
+      const payload = getListClaim(user);
+      const accessToken = createJWT(payload);
+      const refreshToken = createRefreshToken();
+
+      const userInfoExtend = await getUserInfo(
+        user.id,
+        params.serviceName,
+        accessToken
+      );
 
       user.UserLogins.forEach((ul) => {
         userInfoExtend.userLogins.push({
@@ -869,10 +892,6 @@ const loginGoogle = async (params) => {
           isUnlink: ul.isUnlink,
         });
       });
-
-      const payload = getListClaim(user);
-      const accessToken = createJWT(payload);
-      const refreshToken = createRefreshToken();
 
       await db.UserToken.create(
         {
@@ -893,7 +912,29 @@ const loginGoogle = async (params) => {
         refreshToken,
       };
     }
-    if (userLink && !userLogins) {
+
+    const userLink = await db.User.findOne({
+      where: {
+        email: data.email,
+      },
+    });
+
+    const userLinkLogin = await db.UserLogin.findOne({
+      where: {
+        userId: userLink.id,
+        loginProvider: "Google",
+      },
+    });
+
+    if (userLinkLogin != null) {
+      return {
+        message:
+          "This system account is already linked by another google account.",
+        statusCode: 409,
+      };
+    }
+
+    if (userLink) {
       const newProvider = {
         userId: userLink.id,
         loginProvider: data.providerName,
@@ -903,7 +944,7 @@ const loginGoogle = async (params) => {
         accountName: data.email,
         isUnlink: !!userLink?.password || !!userLink.UserLogins?.length,
       };
-      await db.UserLogin.create(newProvider, { transaction: t });
+      await db.UserLogin.create(newProvider);
       const user = await db.User.findOne({
         where: {
           id: newProvider.userId,
@@ -911,7 +952,15 @@ const loginGoogle = async (params) => {
         include: [db.Service, db.UserLogin],
       });
 
-      const userInfoExtend = await getUserInfo(user.id, params.serviceName);
+      const payload = getListClaim(user);
+      const accessToken = createJWT(payload);
+      const refreshToken = createRefreshToken();
+
+      const userInfoExtend = await getUserInfo(
+        user.id,
+        params.serviceName,
+        accessToken
+      );
 
       user.UserLogins.forEach((ul) => {
         userInfoExtend.userLogins.push({
@@ -924,10 +973,6 @@ const loginGoogle = async (params) => {
           isUnlink: ul.isUnlink,
         });
       });
-
-      const payload = getListClaim(user);
-      const accessToken = createJWT(payload);
-      const refreshToken = createRefreshToken();
 
       await db.UserToken.create(
         {
@@ -958,6 +1003,7 @@ const loginGoogle = async (params) => {
         CreatedAt: new Date(),
         ModifiedAt: new Date(),
         EmailConfirm: true,
+        MessageType: "registerUser",
         Url: data.picture,
         Avatar: "Google Avatar",
       };
@@ -1066,7 +1112,8 @@ const unlinkGoogle = async (data) => {
     });
     const userInfoExtend = await getUserInfo(
       userLinked.id,
-      userLinked.Service.serviceName
+      userLinked.Service.serviceName,
+      data?.token
     );
     userLinked.UserLogins.forEach((ul) => {
       userInfoExtend.userLogins.push({
@@ -1111,8 +1158,17 @@ const loginFacebook = async (data) => {
           },
           include: [db.Service, db.UserLogin],
         });
+
+        const payload = getListClaim(user);
+        const accessToken = createJWT(payload);
+        const refreshToken = createRefreshToken();
+
         //truyen vao service
-        const userInfoExtend = await getUserInfo(user.id, data.serviceName);
+        const userInfoExtend = await getUserInfo(
+          user.id,
+          data.serviceName,
+          accessToken
+        );
 
         user.UserLogins.forEach((ul) => {
           userInfoExtend.userLogins.push({
@@ -1125,10 +1181,6 @@ const loginFacebook = async (data) => {
             isUnlink: ul.isUnlink,
           });
         });
-
-        const payload = getListClaim(user);
-        const accessToken = createJWT(payload);
-        const refreshToken = createRefreshToken();
 
         await db.UserToken.create(
           {
@@ -1171,6 +1223,7 @@ const loginFacebook = async (data) => {
           CreatedAt: new Date(),
           ModifiedAt: new Date(),
           EmailConfirm: true,
+          MessageType: "registerUser",
           Url: userProfile.picture.data.url,
           Avatar: "Provider Avatar",
         };
@@ -1268,7 +1321,11 @@ const loginFacebook = async (data) => {
         };
         await db.UserLogin.create(newProvider, { transaction: t });
 
-        const userInfoExtend = await getUserInfo(userLink.id, data.serviceName);
+        const userInfoExtend = await getUserInfo(
+          userLink.id,
+          data.serviceName,
+          data?.token
+        );
         userLink.UserLogins.forEach((ul) => {
           userInfoExtend.userLogins.push({
             loginProvider: ul.loginProvider,
@@ -1298,7 +1355,7 @@ const loginFacebook = async (data) => {
   }
 };
 
-const googleLink = async (userId, params) => {
+const googleLink = async (userId, params, token) => {
   try {
     const provider = await getGoogleProfile(params.code);
     const providerExternalLink = await db.UserLogin.findOne({
@@ -1324,7 +1381,11 @@ const googleLink = async (userId, params) => {
       };
       await db.UserLogin.create(newProvider);
 
-      const userInfoExtend = await getUserInfo(userLink.id, params.serviceName);
+      const userInfoExtend = await getUserInfo(
+        userLink.id,
+        params.serviceName,
+        token
+      );
       userLink.UserLogins.forEach((ul) => {
         userInfoExtend.userLogins.push({
           loginProvider: ul.loginProvider,
@@ -1405,7 +1466,20 @@ const refreshToken = async (refreshToken, remember) => {
       include: [db.Service],
     });
 
-    const userInfoExtend = await getUserInfo(user.id, user.Service.serviceName);
+    const payload = getListClaim(user);
+
+    const expired =
+      remember === false ? timeExpires().notRemember : timeExpires().remember;
+
+    const newAccessToken = createJWT(payload);
+    const newRefreshToken = createRefreshToken();
+
+    const userInfoExtend = await getUserInfo(
+      user.id,
+      user.Service.serviceName,
+      newAccessToken
+    );
+
     if (userInfoExtend.isActive) {
       await t.commit();
       return {
@@ -1415,14 +1489,6 @@ const refreshToken = async (refreshToken, remember) => {
           "Your account has been banned. Please contact admin@gmail.com for more details.",
       };
     }
-
-    const payload = getListClaim(user);
-
-    const expired =
-      remember === false ? timeExpires().notRemember : timeExpires().remember;
-
-    const newAccessToken = createJWT(payload);
-    const newRefreshToken = createRefreshToken();
 
     await db.UserToken.update(
       {
